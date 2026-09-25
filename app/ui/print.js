@@ -84,12 +84,16 @@ window.ERP = window.ERP || {};
     return vals.length && s.receiptShowBank ? vals.join('<br>') : '';
   }
 
+  /* GS1 check digit (EAN-13 / EAN-8): weights 3,1 from the right, excluding the check digit */
+  function eanOk(code) { const d = code.split('').map(Number), chk = d.pop(); const sum = d.reverse().reduce((a, n, i) => a + n * (i % 2 ? 1 : 3), 0); return (10 - (sum % 10)) % 10 === chk; }
   function barcodeSvg(value, { height = 40, width = 1.6 } = {}) {
     if (!value) return '';
     if (typeof JsBarcode === 'undefined') return `<div class="code">${e(value)}</div>`;
     try {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      JsBarcode(svg, String(value), { format: /^\d{13}$/.test(value) ? 'EAN13' : /^\d{8}$/.test(value) ? 'EAN8' : 'CODE128', width, height, displayValue: true, fontSize: 12, margin: 2 });
+      // EAN only when the check digit is valid — otherwise JsBarcode throws and the label shows plain text; CODE128 scans back to the exact same digits
+      const v = String(value), fmt = (/^\d{13}$/.test(v) && eanOk(v)) ? 'EAN13' : (/^\d{8}$/.test(v) && eanOk(v)) ? 'EAN8' : 'CODE128';
+      JsBarcode(svg, v, { format: fmt, width, height, displayValue: true, fontSize: 12, margin: 2 });
       return svg.outerHTML;
     } catch { return `<div class="code">${e(value)}</div>`; }
   }
