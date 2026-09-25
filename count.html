@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="referrer" content="no-referrer">
+<title>عدّ المخزون بالموبايل — Dream Market ERP</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--line:#334155;--fg:#f1f5f9;--mut:#94a3b8;--pri:#16a34a;--pri2:#22c55e;--dan:#ef4444;--war:#f59e0b;--inf:#38bdf8;--r:14px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Tahoma,"Noto Sans Arabic",sans-serif}
+body{padding:env(safe-area-inset-top) 0 calc(88px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;background:rgba(15,23,42,.96);backdrop-filter:blur(6px);padding:.6rem .9rem;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:.6rem}
+header h1{font-size:1.05rem;margin:0;flex:1}
+.pill{font-size:.75rem;padding:.2rem .6rem;border-radius:99px;background:#334155;color:var(--mut);white-space:nowrap}
+.pill.ok{background:#14532d;color:#bbf7d0}.pill.bad{background:#7f1d1d;color:#fecaca}
+main{padding:.8rem;max-width:720px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:.8rem;margin-bottom:.8rem}
+.row{display:flex;gap:.5rem;align-items:center}
+input,select,button{font:inherit;color:inherit}
+input{width:100%;min-height:48px;padding:.5rem .7rem;border-radius:12px;border:1px solid var(--line);background:#0b1222;font-size:1.05rem;direction:ltr;text-align:center}
+input:focus{outline:2px solid var(--pri2);border-color:transparent}
+button{min-height:48px;padding:.5rem .9rem;border-radius:12px;border:0;background:#334155;cursor:pointer;font-weight:700;white-space:nowrap}
+button:active{transform:scale(.97)}
+button.pri{background:var(--pri);color:#fff}button.dan{background:#7f1d1d;color:#fecaca}button.inf{background:#075985;color:#e0f2fe}
+button:disabled{opacity:.5}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.muted{color:var(--mut)}.small{font-size:.8rem}
+#cam{position:relative;border-radius:12px;overflow:hidden;background:#000;margin-top:.6rem;display:none}
+#cam video{width:100%;display:block;max-height:46vh;object-fit:cover}
+#cam .aim{position:absolute;inset:30% 10%;border:3px solid rgba(34,197,94,.9);border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.25)}
+#cam .last{position:absolute;bottom:.5rem;inset-inline:0;text-align:center;font-weight:800;text-shadow:0 1px 3px #000;direction:ltr}
+#cam .tools{position:absolute;top:.5rem;inset-inline-start:.5rem;display:flex;gap:.4rem}
+#cam .tools button{min-height:38px;padding:.3rem .7rem;background:rgba(15,23,42,.75)}
+.item{display:grid;grid-template-columns:1fr 96px 44px;gap:.5rem;align-items:center;padding:.55rem 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis}
+.item .cd{font-size:.8rem;color:var(--mut);direction:ltr;text-align:right}
+.item input{min-height:42px;font-size:1.1rem;font-weight:800}
+.item button{min-height:42px;padding:0;background:#3f1d1d;color:#fecaca}
+.item.unk .nm{color:var(--war)}
+.item.flash{animation:fl .8s}
+@keyframes fl{from{background:rgba(34,197,94,.35)}to{background:transparent}}
+.tag{display:inline-block;font-size:.7rem;padding:0 .4rem;border-radius:6px;background:#334155;color:var(--mut);margin-inline-start:.3rem}
+.tag.p{background:#713f12;color:#fde68a}
+footer{position:fixed;bottom:0;inset-inline:0;background:rgba(15,23,42,.97);border-top:1px solid var(--line);padding:.55rem .8rem calc(.55rem + env(safe-area-inset-bottom));display:flex;gap:.5rem;align-items:center;z-index:6}
+footer .tot{flex:1;font-size:.85rem}
+footer .tot b{font-size:1.1rem}
+#toast{position:fixed;top:64px;inset-inline:1rem;z-index:9;display:none;padding:.7rem 1rem;border-radius:12px;background:#334155;font-weight:700;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+#toast.ok{background:#166534}#toast.bad{background:#991b1b}
+label.sw{display:flex;align-items:center;gap:.5rem;font-size:.9rem;margin-top:.5rem}
+label.sw input{width:22px;min-height:22px;height:22px}
+details summary{cursor:pointer;font-weight:700}
+.empty{text-align:center;color:var(--mut);padding:1.2rem .5rem}
+</style>
+</head>
+<body>
+<header><h1>📦 عدّ المخزون</h1><span class="pill" id="conn">وضع الملف</span></header>
+<main>
+  <div class="card">
+    <div class="row"><input id="code" placeholder="امسح أو اكتب الباركود / الكود" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><button class="pri" id="add">إضافة</button></div>
+    <div class="row" style="margin-top:.5rem"><input id="qty" type="text" inputmode="decimal" autocomplete="off" placeholder="الكمية (فارغ = 1)" style="flex:1"><button id="camBtn" class="inf">📷 الكاميرا</button></div>
+    <label class="sw"><input type="checkbox" id="askQty"> بعد كل مسح بالكاميرا اسألني عن الكمية</label>
+    <div id="camNote" class="small muted" style="margin-top:.4rem"></div>
+    <div id="cam"><video id="video" playsinline muted></video><div class="aim"></div><div class="tools"><button id="torch" style="display:none">🔦</button><button id="camStop">✕ إيقاف</button></div><div class="last" id="lastScan"></div></div>
+  </div>
+
+  <div class="card" id="listCard">
+    <div class="row" style="justify-content:space-between;margin-bottom:.3rem"><strong>الأصناف المعدودة</strong><input id="filter" placeholder="بحث…" style="max-width:150px;min-height:38px;font-size:.9rem;display:none"></div>
+    <div id="list"></div>
+  </div>
+
+  <div class="card">
+    <div class="grid2" id="connBtns" style="display:none;margin-bottom:.5rem"><button class="pri" id="send">⬆ إرسال للكمبيوتر</button><button id="reload">↻ تحديث الأصناف</button></div>
+    <label class="sw" id="autoWrap" style="display:none;margin:0 0 .6rem"><input type="checkbox" id="autoSend"> إرسال تلقائي بعد كل مسح</label>
+    <div class="grid2"><button id="share">↗ مشاركة الملف</button><button id="csv">⬇ CSV</button><button id="json">⬇ JSON</button><button class="dan" id="clear">🗑 مسح الكل</button></div>
+    <p class="small muted" style="margin:.6rem 0 0">الملف يحتوي على <b>كل</b> الكميات المعدودة. على الكمبيوتر: المخزون ← جرد ← «استيراد عدّ الموبايل». الكميات محفوظة على هذا الجهاز حتى لو أُغلقت الصفحة.</p>
+  </div>
+
+  <details class="card"><summary>⚙ إعدادات</summary>
+    <div style="margin-top:.6rem"><label class="small muted">اسم العادّ / الجهاز (يظهر على الكمبيوتر)</label><input id="device" style="text-align:right;direction:rtl" maxlength="40"></div>
+    <div style="margin-top:.6rem"><label class="small muted">رمز الجلسة (من شاشة الجرد على الكمبيوتر)</label><div class="row"><input id="token" style="letter-spacing:.15em" maxlength="16" autocapitalize="characters"><button id="tokenSave">حفظ</button></div></div>
+    <label class="sw"><input type="checkbox" id="beep" checked> صوت واهتزاز عند المسح</label>
+  </details>
+</main>
+<footer><div class="tot"><div><b id="tItems">0</b> صنف · <b id="tQty">0</b> قطعة</div><div class="small muted" id="tPending"></div></div><button class="pri" id="scanFab">📷 مسح</button></footer>
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const KEY = 'dm-count:v1', CAT = 'dm-count:catalog';
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const digits = s => String(s == null ? '' : s).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٫,]/g, '.').trim();
+  const num = v => { const n = parseFloat(digits(v)); return isFinite(n) ? n : 0; };
+  const r4 = n => Math.round((n + Number.EPSILON) * 10000) / 10000;
+  const fmt = n => (Math.round(n * 1000) / 1000).toLocaleString('en-US');
+
+  /* ---------- state (localStorage: nothing is lost on reload) ---------- */
+  let st = { items: [], device: '', token: '', askQty: false, beep: true, autoSend: true };
+  try { st = Object.assign(st, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* corrupt → fresh */ }
+  if (!Array.isArray(st.items)) st.items = [];
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { toast('تعذّر الحفظ على الجهاز (المساحة ممتلئة؟)', 'bad'); } };
+  let catalog = new Map(); // code → { n, f, un }
+  const loadCatalog = list => { catalog = new Map(); (list || []).forEach(p => { const base = { n: p.n, f: 1, un: p.un || '' }; if (p.c) catalog.set(String(p.c), base); (p.b || []).forEach(b => catalog.set(String(b), base)); (p.u || []).forEach(x => catalog.set(String(x.b), { n: p.n, f: x.f || 1, un: x.n || '' })); }); };
+  try { loadCatalog(JSON.parse(localStorage.getItem(CAT) || '[]')); } catch (e) { /* none */ }
+
+  /* ---------- connected mode (served by the desktop app on the LAN) ---------- */
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('token')) { st.token = qs.get('token').toUpperCase(); save(); history.replaceState(null, '', location.pathname); }
+  const served = /^https?:$/.test(location.protocol);
+  let online = false;
+  const api = async (path, opts = {}) => {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), opts.timeout || 12000);
+    try {
+      const r = await fetch(path, { method: opts.method || 'GET', headers: Object.assign({ 'X-Count-Token': st.token || '' }, opts.body ? { 'Content-Type': 'application/json' } : {}), body: opts.body ? JSON.stringify(opts.body) : undefined, signal: ctl.signal, cache: 'no-store' });
+      let j = null; try { j = await r.json(); } catch (e) { /* not json */ }
+      if (!r.ok || !j || j.ok === false) throw new Error((j && j.err) || ('HTTP ' + r.status));
+      return j;
+    } catch (e) { throw new Error(e.name === 'AbortError' ? 'انتهت المهلة — تأكد من الاتصال بنفس الشبكة' : e.message); } finally { clearTimeout(t); }
+  };
+  function setConn(state, text) { const c = $('conn'); c.className = 'pill ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'bad' : ''); c.textContent = text; }
+  async function connect(quiet) {
+    if (!served || !st.token) { setConn('', 'وضع الملف'); return; }
+    try {
+      const j = await api('/api/products', { timeout: 20000 });
+      loadCatalog(j.products); try { localStorage.setItem(CAT, JSON.stringify(j.products)); } catch (e) { /* too big to cache — kept in memory */ }
+      online = true; setConn('ok', '✓ متصل' + (j.store ? ' — ' + j.store : '')); $('connBtns').style.display = ''; $('autoWrap').style.display = '';
+      if (!quiet) toast(`متصل بالكمبيوتر — ${j.products.length} صنف`, 'ok');
+      render();
+    } catch (e) { online = false; setConn('bad', 'غير متصل'); $('connBtns').style.display = ''; if (!quiet) toast('تعذّر الاتصال: ' + e.message, 'bad'); }
+  }
+
+  /* ---------- items ---------- */
+  const live = () => st.items.filter(i => !i.del);
+  function addScan(code, qty) {
+    code = digits(code).replace(/\s+/g, ''); if (!code) return;
+    qty = qty === undefined || qty === '' || qty === null ? 1 : num(qty); if (!qty) return toast('الكمية غير صالحة', 'bad');
+    let it = st.items.find(i => i.code === code);
+    if (it) { it.qty = r4((it.del ? 0 : it.qty) + qty); it.del = false; it.at = Date.now(); st.items = [it, ...st.items.filter(i => i !== it)]; }
+    else { it = { code, qty: r4(qty), sent: 0, at: Date.now() }; st.items.unshift(it); }
+    save(); render(code); feedback(); scheduleSend();
+    const c = catalog.get(code); if (served && online && !c) toast('⚠ كود غير معروف: ' + code, 'bad');
+  }
+  function setQty(code, v) { const it = st.items.find(i => i.code === code); if (!it) return; it.qty = r4(Math.max(0, num(v))); save(); totals(); scheduleSend(); }
+  function remove(code) { const it = st.items.find(i => i.code === code); if (!it) return; if (it.sent) { it.qty = 0; it.del = true; } else st.items = st.items.filter(i => i !== it); save(); render(); scheduleSend(); }
+
+  function render(flash) {
+    const f = digits($('filter').value).toLowerCase(); const all = live();
+    $('filter').style.display = all.length > 15 ? '' : 'none';
+    const rows = all.filter(i => !f || i.code.toLowerCase().includes(f) || ((catalog.get(i.code) || {}).n || '').toLowerCase().includes(f));
+    $('list').innerHTML = rows.length ? rows.slice(0, 500).map(i => { const c = catalog.get(i.code); const pend = r4(i.qty - (i.sent || 0)); return `<div class="item ${c ? '' : (catalog.size ? 'unk' : '')} ${flash === i.code ? 'flash' : ''}" data-c="${esc(i.code)}"><div style="min-width:0"><div class="nm">${c ? esc(c.n) : (catalog.size ? 'غير معروف' : 'صنف')}${c && c.f !== 1 ? `<span class="tag">${esc(c.un || 'عبوة')} ×${fmt(c.f)}</span>` : ''}${online && pend ? '<span class="tag p">لم يُرسل</span>' : ''}</div><div class="cd">${esc(i.code)}</div></div><input type="number" inputmode="decimal" step="any" value="${i.qty}" data-q="${esc(i.code)}"><button data-x="${esc(i.code)}" aria-label="حذف">✕</button></div>`; }).join('') + (rows.length > 500 ? `<div class="empty small">يُعرض أول 500 — استخدم البحث</div>` : '') : `<div class="empty">${all.length ? 'لا نتائج' : 'امسح أول صنف للبدء — بالكاميرا أو قارئ الباركود أو الكتابة'}</div>`;
+    totals();
+  }
+  function totals() { const all = live(); $('tItems').textContent = all.length; $('tQty').textContent = fmt(all.reduce((a, i) => a + num(i.qty), 0)); const p = st.items.filter(i => r4(i.qty - (i.sent || 0)) !== 0).length; $('tPending').textContent = served && st.token ? (p ? `${p} سطر بانتظار الإرسال` : 'كل الكميات مُرسلة ✓') : ''; }
+
+  $('list').addEventListener('input', ev => { const q = ev.target.dataset.q; if (q) setQty(q, ev.target.value); });
+  $('list').addEventListener('click', ev => { const x = ev.target.closest('[data-x]'); if (x && confirm('حذف هذا الصنف من العدّ؟')) remove(x.dataset.x); });
+  $('filter').addEventListener('input', () => render());
+
+  /* ---------- manual entry + hardware / Bluetooth scanner (keyboard wedge types + Enter) ---------- */
+  const commit = () => { const c = $('code').value; if (!c.trim()) return; addScan(c, $('qty').value); $('code').value = ''; $('qty').value = ''; $('code').focus(); };
+  $('add').onclick = commit;
+  $('code').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); if ($('code').value.trim() && pendingCam) { $('qty').focus(); return; } commit(); } });
+  $('qty').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); commit(); pendingCam = false; } });
+  let wedge = '', wedgeT = 0; // scanner typing while no input has focus
+  document.addEventListener('keydown', ev => {
+    const t = ev.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    if (ev.key === 'Enter') { if (wedge.length >= 3) addScan(wedge); wedge = ''; return; }
+    if (ev.key.length === 1) { const now = Date.now(); if (now - wedgeT > 80) wedge = ''; wedgeT = now; wedge += ev.key; }
+  });
+
+  /* ---------- camera (BarcodeDetector — Chrome on Android; needs HTTPS) ---------- */
+  let stream = null, det = null, loop = 0, last = '', lastAt = 0, pendingCam = false, torchOn = false;
+  const camOk = 'BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+  if (!window.isSecureContext) $('camNote').textContent = 'الكاميرا تحتاج اتصالاً آمناً (https) — استخدم الإدخال اليدوي أو قارئ الباركود، أو افتح الصفحة من رابط QR على الكمبيوتر.';
+  else if (!camOk) $('camNote').textContent = 'مسح الكاميرا غير مدعوم في هذا المتصفح (استخدم Chrome على أندرويد) — الإدخال اليدوي وقارئ البلوتوث يعملان.';
+  async function camStart() {
+    if (!camOk || !window.isSecureContext) return toast($('camNote').textContent || 'الكاميرا غير متاحة', 'bad');
+    try {
+      if (!det) { let fm = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar', 'qr_code']; try { const sup = await BarcodeDetector.getSupportedFormats(); fm = fm.filter(f => sup.includes(f)); } catch (e) { /* use all */ } det = new BarcodeDetector(fm.length ? { formats: fm } : undefined); }
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      const v = $('video'); v.srcObject = stream; await v.play(); $('cam').style.display = 'block';
+      const track = stream.getVideoTracks()[0]; const caps = track.getCapabilities ? track.getCapabilities() : {}; $('torch').style.display = caps.torch ? '' : 'none';
+      const tick = async () => {
+        if (!stream) return;
+        try { const codes = v.readyState >= 2 ? await det.detect(v) : []; if (codes.length) { const val = codes[0].rawValue; const now = Date.now(); if (val && (val !== last || now - lastAt > 1800)) { last = val; lastAt = now; onCam(val); } } } catch (e) { /* frame not ready */ }
+        loop = setTimeout(tick, 160);
+      };
+      tick();
+    } catch (e) { toast('تعذّر فتح الكاميرا: ' + (e.name === 'NotAllowedError' ? 'اسمح بالوصول للكاميرا من إعدادات المتصفح' : e.message), 'bad'); camStop(); }
+  }
+  function camStop() { clearTimeout(loop); if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; $('cam').style.display = 'none'; torchOn = false; }
+  function onCam(val) {
+    $('lastScan').textContent = val;
+    if (st.askQty) { pendingCam = true; $('code').value = val; $('qty').value = ''; feedback(); $('qty').focus(); toast('أدخل الكمية ثم «إضافة»'); return; }
+    addScan(val);
+  }
+  $('camBtn').onclick = $('scanFab').onclick = () => (stream ? camStop() : camStart());
+  $('camStop').onclick = camStop;
+  $('torch').onclick = async () => { try { torchOn = !torchOn; await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { /* unsupported */ } };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) camStop(); });
+
+  /* ---------- feedback ---------- */
+  let actx = null;
+  function feedback() { if (!st.beep) return; try { if (navigator.vibrate) navigator.vibrate(40); actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = 1400; g.gain.value = .08; o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + .08); } catch (e) { /* no audio */ } }
+  let toastT = 0;
+  function toast(msg, kind) { const t = $('toast'); t.textContent = msg; t.className = kind || ''; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.display = 'none'; }, 2600); }
+
+  /* ---------- send to PC (deltas since the last successful send → the PC adds them) ---------- */
+  let sending = false, sendT = 0;
+  function scheduleSend() { if (!served || !st.token || !st.autoSend || !online) return; clearTimeout(sendT); sendT = setTimeout(() => send(true), 2500); }
+  async function send(auto) {
+    if (sending) return; if (!st.token) return toast('أدخل رمز الجلسة من شاشة الجرد على الكمبيوتر', 'bad');
+    const batch = st.items.map(i => ({ it: i, d: r4(i.qty - (i.sent || 0)) })).filter(x => x.d !== 0);
+    if (!batch.length) { if (!auto) toast('لا توجد كميات جديدة للإرسال'); return; }
+    sending = true; $('send').disabled = true;
+    try {
+      await api('/api/counts', { method: 'POST', body: { device: st.device || navigator.userAgent.slice(0, 40), items: batch.map(x => ({ code: x.it.code, qty: x.d })) } });
+      batch.forEach(x => { x.it.sent = r4((x.it.sent || 0) + x.d); });
+      st.items = st.items.filter(i => !(i.del && !i.sent));
+      save(); online = true; setConn('ok', '✓ متصل'); render(); toast(`تم إرسال ${batch.length} سطر ✓`, 'ok');
+    } catch (e) { setConn('bad', 'لم يُرسل'); if (!auto) toast('لم يتم الإرسال: ' + e.message, 'bad'); else totals(); }
+    finally { sending = false; $('send').disabled = false; }
+  }
+  $('send').onclick = () => send(false);
+  $('reload').onclick = () => connect(false);
+  setInterval(() => { if (served && st.token && st.autoSend && st.items.some(i => r4(i.qty - (i.sent || 0)) !== 0)) send(true); }, 20000);
+
+  /* ---------- export (offline mode — works everywhere) ---------- */
+  const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const payload = () => ({ format: 'dm-count', v: 1, device: st.device || '', createdAt: new Date().toISOString(), items: live().filter(i => num(i.qty) > 0).map(i => ({ code: i.code, qty: i.qty, name: (catalog.get(i.code) || {}).n || '' })) });
+  const csvText = () => '﻿barcode,qty,name\n' + payload().items.map(i => `${i.code},${i.qty},"${String(i.name).replace(/"/g, '""')}"`).join('\n');
+  function download(text, name, type) { const b = new Blob([text], { type }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+  const guard = () => { if (!live().length) { toast('لا توجد أصناف معدودة', 'bad'); return false; } return true; };
+  $('csv').onclick = () => guard() && download(csvText(), `count-${stamp()}.csv`, 'text/csv;charset=utf-8');
+  $('json').onclick = () => guard() && download(JSON.stringify(payload(), null, 1), `count-${stamp()}.json`, 'application/json');
+  $('share').onclick = async () => {
+    if (!guard()) return;
+    const file = new File([JSON.stringify(payload())], `count-${stamp()}.json`, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: 'عدّ المخزون' }); } catch (e) { if (e.name !== 'AbortError') toast('تعذّرت المشاركة: ' + e.message, 'bad'); } }
+    else download(JSON.stringify(payload(), null, 1), file.name, 'application/json');
+  };
+  $('clear').onclick = () => { if (!live().length) return; const p = st.items.some(i => r4(i.qty - (i.sent || 0)) !== 0) && served && st.token; if (!confirm(p ? 'هناك كميات لم تُرسل للكمبيوتر بعد! مسح كل العدّ نهائياً؟' : 'مسح كل الأصناف المعدودة من هذا الجهاز؟')) return; st.items = []; save(); render(); };
+
+  /* ---------- settings ---------- */
+  $('device').value = st.device || ''; $('device').onchange = () => { st.device = $('device').value.trim(); save(); };
+  $('token').value = st.token || ''; $('tokenSave').onclick = () => { st.token = $('token').value.trim().toUpperCase(); save(); connect(false); };
+  $('askQty').checked = !!st.askQty; $('askQty').onchange = () => { st.askQty = $('askQty').checked; save(); };
+  $('beep').checked = st.beep !== false; $('beep').onchange = () => { st.beep = $('beep').checked; save(); };
+  $('autoSend').checked = st.autoSend !== false; $('autoSend').onchange = () => { st.autoSend = $('autoSend').checked; save(); };
+
+  render(); connect(true); $('code').focus();
+})();
+</script>
+</body>
+</html>

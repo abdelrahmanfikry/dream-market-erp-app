@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>شاشة العميل — Dream Market ERP</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap">
+<style>
+  :root { --bg:#0b1120; --card:#111a2e; --fg:#e6edf7; --muted:#94a3b8; --accent:#3178ff; --ok:#16a34a; --line:#1f2b45; }
+  * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--fg); font-family:Cairo,system-ui,sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:1.2rem 2rem; border-bottom:1px solid var(--line); }
+  header .store { font-size:1.6rem; font-weight:800; } header .store small { display:block; font-size:.9rem; color:var(--muted); font-weight:400; }
+  header .clock { font-size:1.4rem; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums; }
+  main { flex:1; display:grid; grid-template-columns:1fr 380px; gap:1.5rem; padding:1.5rem 2rem; min-height:0; }
+  .lines { background:var(--card); border-radius:18px; border:1px solid var(--line); overflow:auto; }
+  .line { display:grid; grid-template-columns:1fr 120px 140px; gap:1rem; padding:1rem 1.4rem; border-bottom:1px solid var(--line); font-size:1.25rem; align-items:center; animation:pop .25s ease; }
+  .line:last-child { border-bottom:0; } .line.head { font-size:.9rem; color:var(--muted); background:rgba(255,255,255,.03); position:sticky; top:0; }
+  .line .n { font-weight:700; } .line .q { color:var(--muted); text-align:center; font-variant-numeric:tabular-nums; } .line .t { text-align:left; font-weight:800; font-variant-numeric:tabular-nums; }
+  .line.last { background:rgba(49,120,255,.12); }
+  aside { display:flex; flex-direction:column; gap:1rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:1.4rem; }
+  .row { display:flex; justify-content:space-between; font-size:1.1rem; color:var(--muted); padding:.35rem 0; font-variant-numeric:tabular-nums; } .row b { color:var(--fg); }
+  .total { border-top:2px solid var(--line); margin-top:.6rem; padding-top:.8rem; } .total .label { font-size:1.2rem; color:var(--muted); } .total .val { font-size:3rem; font-weight:800; color:var(--accent); font-variant-numeric:tabular-nums; direction:ltr; text-align:right; line-height:1.1; }
+  .msg { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:.6rem; color:var(--muted); font-size:1.2rem; }
+  .msg .big { font-size:2rem; font-weight:800; color:var(--fg); }
+  .paid { background:linear-gradient(135deg,#052e16,#14532d); border-color:#166534; } .paid .val { color:#86efac; }
+  .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--muted); gap:1rem; font-size:1.4rem; }
+  .empty .logo { width:96px; height:96px; border-radius:24px; background:linear-gradient(135deg,#3178ff,#1342e1); display:grid; place-items:center; font-size:2.6rem; color:#fff; }
+  footer { padding:.8rem 2rem; border-top:1px solid var(--line); color:var(--muted); font-size:1rem; text-align:center; }
+  @keyframes pop { from { opacity:0; transform:translateY(6px);} to { opacity:1; transform:none;} }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header><div class="store" id="store">Dream Market<small id="slogan"></small></div><div class="clock" id="clock"></div></header>
+<main>
+  <section class="lines" id="lines"><div class="empty"><div class="logo">🛒</div><div id="welcome">أهلاً وسهلاً</div></div></section>
+  <aside>
+    <div class="card" id="totals"><div class="row"><span>الأصناف</span><b id="cnt">0</b></div><div class="row"><span>الإجمالي</span><b id="sub">0.00</b></div><div class="row" id="discRow" style="display:none"><span>الخصم</span><b id="disc" style="color:#fca5a5">0.00</b></div><div class="row" id="taxRow" style="display:none"><span>الضريبة</span><b id="tax">0.00</b></div><div class="total"><div class="label" id="totLabel">المطلوب</div><div class="val" id="tot">0.00</div></div></div>
+    <div class="card msg" id="msg"><div class="big" id="msgBig">مرحباً بك</div><div id="msgSub">نتمنى لك تسوقاً سعيداً</div></div>
+  </aside>
+</main>
+<footer id="footer"></footer>
+<script>
+  const $ = s => document.querySelector(s);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); // untrusted text (product names, settings)
+  const fmt = n => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  let cur = 'ج.م';
+  function tick() { const d = new Date(); let h = d.getHours(); const ap = h >= 12 ? 'م' : 'ص'; h = h % 12 || 12; $('#clock').textContent = `${h}:${String(d.getMinutes()).padStart(2, '0')} ${ap}`; } tick(); setInterval(tick, 10000);
+  function render(state) {
+    if (state.store) { $('#store').firstChild.textContent = state.store; $('#slogan').textContent = state.slogan || ''; $('#footer').textContent = state.footer || ''; cur = state.currency || cur; const w = $('#welcome'); if (w) w.textContent = state.welcome || 'أهلاً وسهلاً'; }
+    const items = state.items || [];
+    if (!items.length) { $('#lines').innerHTML = `<div class="empty"><div class="logo">🛒</div><div>${esc(state.welcome || 'أهلاً وسهلاً')}</div></div>`; }
+    else { $('#lines').innerHTML = `<div class="line head"><span>الصنف</span><span class="q">الكمية × السعر</span><span class="t">الإجمالي</span></div>` + items.map((it, i) => `<div class="line ${i === items.length - 1 ? 'last' : ''}"><span class="n">${esc(it.name)}</span><span class="q">${esc(it.qty)} × ${fmt(it.price)}</span><span class="t">${fmt(it.total)}</span></div>`).join(''); const l = $('#lines'); l.scrollTop = l.scrollHeight; }
+    $('#cnt').textContent = items.length; $('#sub').textContent = fmt(state.subtotal); $('#tot').textContent = fmt(state.total) + ' ' + cur;
+    $('#discRow').style.display = state.discount ? '' : 'none'; $('#disc').textContent = '-' + fmt(state.discount);
+    $('#taxRow').style.display = state.tax ? '' : 'none'; $('#tax').textContent = fmt(state.tax);
+    const t = $('#totals'); t.classList.toggle('paid', state.mode === 'paid');
+    if (state.mode === 'paid') { $('#totLabel').textContent = 'المدفوع'; $('#msgBig').textContent = state.change > 0 ? `الباقي ${fmt(state.change)} ${cur}` : 'شكراً لتسوقكم'; $('#msgSub').textContent = state.thanks || 'نتشرف بزيارتكم دائماً'; if (state.points) $('#msgSub').textContent += ` · +${state.points} نقطة`; }
+    else { $('#totLabel').textContent = 'المطلوب'; $('#msgBig').textContent = items.length ? (state.customer ? `أهلاً ${state.customer}` : 'مرحباً بك') : 'مرحباً بك'; $('#msgSub').textContent = items.length ? `${items.length} صنف في السلة` : 'نتمنى لك تسوقاً سعيداً'; }
+  }
+  try { const ch = new BroadcastChannel('dm-pos-display'); ch.onmessage = ev => render(ev.data || {}); ch.postMessage({ type: 'hello' }); } catch (e) { $('#msgSub').textContent = 'المتصفح لا يدعم قناة الاتصال'; }
+  window.addEventListener('storage', ev => { if (ev.key === 'dm_erp:__display' && ev.newValue) { try { render(JSON.parse(ev.newValue)); } catch {} } });
+  try { const last = localStorage.getItem('dm_erp:__display'); if (last) render(JSON.parse(last)); } catch {}
+</script>
+</body>
+</html>

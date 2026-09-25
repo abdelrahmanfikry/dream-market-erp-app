@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="Dream Market ERP — نظام إدارة متكامل للسوبر ماركت والبقالة: نقطة بيع، مخزون، محاسبة، عملاء، موردون، موظفون وتقارير">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Dream Market ERP</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a56f5'/%3E%3Cpath d='M14 26h36l-3 20H17z' fill='none' stroke='%23fff' stroke-width='4' stroke-linejoin='round'/%3E%3Cpath d='M22 26v-4a10 10 0 0 1 20 0v4' fill='none' stroke='%23fff' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/lib/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="assets/css/design-system.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+</head>
+<body>
+  <div class="loading-overlay" id="loading"><div class="brand-logo" style="width:64px;height:64px;font-size:1.8rem"><i class="fas fa-store"></i></div><div class="spinner"></div><div class="muted text-sm">جاري تحميل النظام…</div></div>
+  <div class="app"></div>
+
+  <!-- Libraries (bundled locally — work fully offline) -->
+  <script src="assets/lib/chart.umd.min.js"></script>
+  <script src="assets/lib/xlsx.full.min.js"></script>
+  <script src="assets/lib/JsBarcode.all.min.js"></script>
+  <script src="assets/lib/qrcode.min.js"></script>
+
+  <!-- Core -->
+  <script src="app/core/utils.js"></script>
+  <script src="app/core/events.js"></script>
+  <script src="app/core/db.js"></script>
+<script src="app/core/agg.js"></script>
+  <script src="app/core/settings.js"></script>
+  <script src="app/core/audit.js"></script>
+  <script src="app/core/auth.js"></script>
+  <script src="app/core/seed.js"></script>
+  <script src="app/core/migrate.js"></script>
+  <script src="app/core/cloud.js"></script>
+  <script src="app/core/native.js"></script>
+  <!-- UI kit -->
+  <script src="app/ui/toast.js"></script>
+  <script src="app/ui/modal.js"></script>
+  <script src="app/ui/table.js"></script>
+  <script src="app/ui/select.js"></script>
+  <script src="app/ui/print.js"></script>
+  <script src="app/ui/charts.js"></script>
+  <script src="app/ui/router.js"></script>
+  <script src="app/ui/cmdk.js"></script>
+  <!-- Services -->
+  <script src="app/services/accounting.js"></script>
+  <script src="app/services/inventory.js"></script>
+  <script src="app/services/shifts.js"></script>
+  <script src="app/services/promotions.js"></script>
+  <script src="app/services/crm.js"></script>
+  <script src="app/services/purchasing.js"></script>
+  <script src="app/services/sales.js"></script>
+  <script src="app/services/hr.js"></script>
+  <script src="app/services/notifications.js"></script>
+  <script src="app/services/backup.js"></script>
+  <script src="app/services/reports.js"></script>
+  <script src="app/services/assets.js"></script>
+  <script src="app/services/branches.js"></script>
+  <script src="app/services/orders.js"></script>
+  <script src="app/services/giftcards.js"></script>
+  <script src="app/services/autobackup.js"></script>
+  <script src="app/services/whatsapp.js"></script>
+  <script src="app/services/dailyreport.js"></script>
+  <script src="app/services/units.js"></script>
+  <script src="app/services/pricechanges.js"></script>
+  <script src="app/services/cashcount.js"></script>
+  <script src="app/services/eta.js"></script>
+  <script src="app/services/mobilecount.js"></script>
+  <script src="app/services/openingimport.js"></script>
+  <!-- Views -->
+  <script src="app/views/dashboard.js"></script>
+  <script src="app/views/pos.js"></script>
+  <script src="app/views/products.js"></script>
+  <script src="app/views/inventory.js"></script>
+  <script src="app/views/sales.js"></script>
+  <script src="app/views/purchases.js"></script>
+  <script src="app/views/suppliers.js"></script>
+  <script src="app/views/customers.js"></script>
+  <script src="app/views/expenses.js"></script>
+  <script src="app/views/accounting.js"></script>
+  <script src="app/views/shifts.js"></script>
+  <script src="app/views/reports.js"></script>
+  <script src="app/views/hr.js"></script>
+  <script src="app/views/promotions.js"></script>
+  <script src="app/views/users.js"></script>
+  <script src="app/views/backup.js"></script>
+  <script src="app/views/settings.js"></script>
+  <script src="app/views/audit.js"></script>
+  <script src="app/views/assets.js"></script>
+  <script src="app/views/reminders.js"></script>
+  <script src="app/views/branches.js"></script>
+  <script src="app/views/orders.js"></script>
+  <script src="app/views/giftcards.js"></script>
+  <script src="app/views/quotations.js"></script>
+  <!-- Self-tests (run from النسخ الاحتياطي → تشغيل اختبارات النظام) -->
+  <script src="app/tests/e2e.js"></script>
+  <script src="app/tests/feat-backup.js"></script>
+  <script src="app/tests/feat-units.js"></script>
+  <script src="app/tests/feat-ops.js"></script>
+  <script src="app/tests/feat-opening.js"></script>
+  <!-- Boot -->
+  <script src="app/main.js"></script>
+</body>
+</html>

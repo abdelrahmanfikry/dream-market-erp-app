@@ -1,0 +1,21 @@
+{
+  "name": "Dream Market ERP — نظام إدارة السوبر ماركت",
+  "short_name": "Dream ERP",
+  "description": "نقطة بيع، مخزون، محاسبة، عملاء، موردون، موظفون وتقارير — يعمل بدون إنترنت",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='%231a56f5'/%3E%3Cpath d='M112 208h288l-24 160H136z' fill='none' stroke='%23fff' stroke-width='32' stroke-linejoin='round'/%3E%3Cpath d='M176 208v-32a80 80 0 0 1 160 0v32' fill='none' stroke='%23fff' stroke-width='32'/%3E%3C/svg%3E", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "نقطة البيع", "url": "./index.html#/pos" },
+    { "name": "المنتجات", "url": "./index.html#/products" },
+    { "name": "التقارير", "url": "./index.html#/reports" }
+  ]
+}
