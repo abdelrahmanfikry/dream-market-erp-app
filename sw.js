@@ -1,5 +1,5 @@
 /* Dream Market ERP — service worker: offline-first shell + CDN cache */
-const VERSION = 'dm-erp-v3.2.2';
+const VERSION = 'dm-erp-v3.3.0';
 const SHELL = [
   './', './index.html', './manifest.json',
   './assets/css/design-system.css', './assets/css/layout.css', './assets/css/print.css',
@@ -10,8 +10,8 @@ const SHELL = [
   './app/services/accounting.js', './app/services/inventory.js', './app/services/shifts.js', './app/services/promotions.js', './app/services/crm.js', './app/services/purchasing.js', './app/services/sales.js', './app/services/hr.js', './app/services/notifications.js', './app/services/backup.js', './app/services/reports.js',
   './app/views/dashboard.js', './app/views/pos.js', './app/views/products.js', './app/views/inventory.js', './app/views/sales.js', './app/views/purchases.js', './app/views/suppliers.js', './app/views/customers.js', './app/views/expenses.js', './app/views/accounting.js', './app/views/shifts.js', './app/views/reports.js', './app/views/hr.js', './app/views/promotions.js', './app/views/users.js', './app/views/backup.js', './app/views/settings.js', './app/views/audit.js',
   './app/services/assets.js', './app/views/assets.js', './app/views/reminders.js', './display.html', './count.html', './app/services/branches.js', './app/views/branches.js', './app/services/orders.js', './app/views/orders.js', './app/services/giftcards.js', './app/views/giftcards.js', './app/views/quotations.js',
-  './app/services/autobackup.js', './app/services/whatsapp.js', './app/services/dailyreport.js', './app/services/units.js', './app/services/pricechanges.js', './app/services/cashcount.js', './app/services/eta.js', './app/services/mobilecount.js', './app/services/openingimport.js',
-  './app/tests/e2e.js', './app/tests/feat-backup.js', './app/tests/feat-units.js', './app/tests/feat-ops.js', './app/tests/feat-opening.js', './app/main.js',
+  './app/services/autobackup.js', './app/services/whatsapp.js', './app/services/dailyreport.js', './app/services/units.js', './app/services/pricechanges.js', './app/services/cashcount.js', './app/services/eta.js', './app/services/mobilecount.js', './app/services/openingimport.js', './app/services/importcenter.js', './app/services/importtypes.js', './app/views/imports.js',
+  './app/tests/e2e.js', './app/tests/feat-backup.js', './app/tests/feat-units.js', './app/tests/feat-ops.js', './app/tests/feat-opening.js', './app/tests/feat-imports.js', './app/main.js',
 ];
 // cache:'reload' bypasses the HTTP cache so a new version never installs stale files
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())); });

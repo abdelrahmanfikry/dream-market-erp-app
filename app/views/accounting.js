@@ -33,31 +33,6 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
     const h = ERP.ui.view(`قيد ${e(j.no)}`, `<div class="detail-grid mb-3"><div class="detail-item"><div class="dl">التاريخ</div><div class="dv num">${u.fmtDateTime(j.date)}</div></div><div class="detail-item"><div class="dl">البيان</div><div class="dv">${e(j.memo)}</div></div><div class="detail-item"><div class="dl">المصدر</div><div class="dv">${u.badge({ sale: 'بيع', sale_return: 'مرتجع بيع', purchase: 'شراء', purchase_return: 'مرتجع شراء', receipt: 'تحصيل', payment: 'سداد', expense: 'مصروف', manual: 'يدوي', opening: 'افتتاحي', stock_adjust: 'تسوية مخزون', stocktake: 'جرد', cash_move: 'خزينة', payroll: 'رواتب', advance: 'سلفة', reversal: 'عكس قيد' }[j.refType] || j.refType || 'يدوي', 'neutral')}</div></div></div><table class="table table-compact"><thead><tr><th>الحساب</th><th>البيان</th><th class="num">مدين</th><th class="num">دائن</th></tr></thead><tbody>${j.lines.map(l => { const a = ERP.accounting.get(l.accountId); return `<tr><td>${a ? `<span class="num muted">${e(a.code)}</span> ${e(a.name)}` : '?'}</td><td class="text-sm">${e(l.desc || '')}</td><td class="num">${l.debit ? u.fmtNum(l.debit) : ''}</td><td class="num">${l.credit ? u.fmtNum(l.credit) : ''}</td></tr>`; }).join('')}</tbody><tfoot><tr><td colspan="2"></td><td class="num">${u.fmtNum(u.sum(j.lines, 'debit'))}</td><td class="num">${u.fmtNum(u.sum(j.lines, 'credit'))}</td></tr></tfoot></table>`, { footer: `<button class="btn" data-a="c">إغلاق</button>${ERP.auth.can('accounting.manage') ? `<button class="btn btn-soft-warning" data-a="rev"><i class="fas fa-rotate-left"></i> قيد عكسي</button>` : ''}` });
     h.$('[data-a=c]').onclick = () => h.close(); const rv = h.$('[data-a=rev]'); if (rv) rv.onclick = async () => { if (await ERP.ui.confirm('إنشاء قيد عكسي لهذا القيد؟')) { ERP.accounting.reverse(id); h.close(); ERP.ui.success('تم'); refresh(); } };
   }
-  /* استيراد الأرصدة الافتتاحية: template → pick file → preview (errors/warnings/totals) → confirm with opening date */
-  function openingImport() {
-    const h = ERP.ui.modal({ title: 'استيراد الأرصدة الافتتاحية من Excel', icon: 'file-import', size: 'lg', body: `<div class="alert alert-info mb-3"><i class="fas fa-circle-info"></i> <div>١) حمّل النموذج واملأ الصفحات اللي تحتاجها: <strong>القيود الافتتاحية</strong> (الخزينة، البنك، رأس المال، الأصول…)، <strong>العملاء</strong>، <strong>الموردين</strong>، <strong>المخزون</strong>.<br>٢) أرصدة العملاء والموردين والمخزون تُكتب في صفحاتها — مش كرقم واحد في القيود — عشان كشف حساب كل عميل ومورد وقيمة المخزون يطلعوا مظبوط.<br>٣) أي فرق بين المدين والدائن يروح لحساب «الأرصدة الافتتاحية».</div></div><div class="flex gap-2 mb-3"><button class="btn btn-outline" data-a="tpl"><i class="fas fa-download"></i> تحميل النموذج</button><button class="btn btn-primary" data-a="pick"><i class="fas fa-upload"></i> اختيار ملف Excel</button></div><div id="oi-pv"></div>`, footer: '<button class="btn" data-a="close">إغلاق</button><div class="flex-1"></div><label class="flex items-center gap-2 text-sm" id="oi-date-w" style="display:none">تاريخ الافتتاح <input type="date" id="oi-date" value="' + u.toISODate(new Date()) + '"></label><button class="btn btn-success" data-a="apply" disabled><i class="fas fa-check"></i> ترحيل الأرصدة</button>' });
-    let pv = null;
-    h.$('[data-a=close]').onclick = () => h.close();
-    h.$('[data-a=tpl]').onclick = () => { try { ERP.openingImport.template(); } catch (err) { ERP.ui.error(err.message); } };
-    h.$('[data-a=pick]').onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.xls'; inp.onchange = async () => { const f = inp.files[0]; if (!f) return; try { pv = await ERP.openingImport.parse(f); show(); } catch (err) { ERP.ui.error('تعذر قراءة الملف: ' + err.message); } }; inp.click(); };
-    const list = (items, cls, icon) => items.length ? `<div class="alert alert-${cls} mb-2" style="display:block;max-height:180px;overflow:auto"><i class="fas fa-${icon}"></i> ${items.map(x => e(x)).join('<br>')}</div>` : '';
-    function show() {
-      const t = pv.totals; const m = n => `<span class="num">${u.fmtNum(n)}</span>`;
-      h.$('#oi-pv').innerHTML = list(pv.errors, 'danger', 'circle-xmark') + list(pv.warnings, 'warning', 'triangle-exclamation') + `<table class="table table-compact"><thead><tr><th>البند</th><th>العدد</th><th>القيمة</th></tr></thead><tbody>
-        <tr><td>قيود عامة (مدين / دائن)</td><td class="num">${pv.gl.length}</td><td>${m(t.glDr)} / ${m(t.glCr)}</td></tr>
-        <tr><td>أرصدة العملاء (مدينون)</td><td class="num">${pv.customers.length}</td><td>${m(t.ar)}</td></tr>
-        <tr><td>أرصدة الموردين (دائنون)</td><td class="num">${pv.suppliers.length}</td><td>${m(t.ap)}</td></tr>
-        <tr><td>المخزون بالتكلفة</td><td class="num">${pv.stock.length}</td><td>${m(t.inv)}</td></tr>
-        <tr><td><strong>صافي حساب الأرصدة الافتتاحية</strong></td><td></td><td><strong>${m(Math.abs(t.openingNet))} ${t.openingNet >= 0 ? 'دائن' : 'مدين'}</strong></td></tr></tbody></table>`;
-      h.$('[data-a=apply]').disabled = !pv.ok; h.$('#oi-date-w').style.display = pv.ok ? '' : 'none';
-    }
-    h.$('[data-a=apply]').onclick = async () => {
-      if (!pv || !pv.ok) return;
-      if (!await ERP.ui.confirm('ترحيل الأرصدة الافتتاحية؟ سيتم إنشاء القيود وتحديث أرصدة العملاء والموردين والمخزون.', { title: 'تأكيد الترحيل' })) return;
-      try { const r = ERP.openingImport.apply(pv, { date: h.$('#oi-date').value }); h.close(); ERP.ui.success(`تم: ${r.gl} سطر قيود، ${r.customers} عميل، ${r.suppliers} مورد، ${r.stock} صنف`); refresh(); }
-      catch (err) { ERP.ui.error(err.message); }
-    };
-  }
   async function manualEntry() {
     if (!ERP.auth.require('accounting.manage')) return;
     const accs = ERP.accounting.accounts().filter(a => !ERP.accounting.accounts().some(x => x.parentId === a.id));
@@ -88,7 +63,7 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
       $('#ac-tabs', root).onclick = ev => { const t = ev.target.closest('.tab'); if (t) switchTab(t.dataset.t); };
       $('#ac-from', root).onchange = $('#ac-to', root).onchange = refresh;
       root.addEventListener('click', async ev => { const lg = ev.target.closest('[data-ledger]'); if (lg) { ev.stopPropagation(); return ledger(lg.dataset.ledger); } const dl = ev.target.closest('[data-del]'); if (dl) { if (await ERP.ui.confirm('حذف الحساب؟', { danger: true })) { try { ERP.accounting.deleteAccount(dl.dataset.del); refresh(); } catch (err) { ERP.ui.error(err.message); } } } const cm = ev.target.closest('[data-cm]'); if (cm) cashMove(cm.dataset.cm); });
-      if (canM) { $('#ac-je', root).onclick = manualEntry; $('#ac-acc', root).onclick = addAccount; $('#ac-open-imp', root).onclick = openingImport; }
+      if (canM) { $('#ac-je', root).onclick = manualEntry; $('#ac-acc', root).onclick = addAccount; $('#ac-open-imp', root).onclick = () => ERP.views.imports.open('opening'); }
       $('#ac-xlsx', root).onclick = () => {
         if (typeof XLSX === 'undefined') return ERP.ui.error('مكتبة Excel غير متاحة');
         const accs = ERP.accounting.accounts(); const byId = u.keyBy(accs);

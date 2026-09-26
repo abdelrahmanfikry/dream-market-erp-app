@@ -206,8 +206,9 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
     h.$('[data-a=rm]').onclick = async () => { const ids = sel(); if (!ids.length) return; if (await ERP.ui.confirm(`حذف ${ids.length} من قائمة الملصقات؟`, { danger: true })) { ERP.labels.remove(ids); draw(); } };
     h.$('[data-a=clean]').onclick = () => { ERP.labels.clearPrinted(); ERP.ui.info('تم مسح سجل المطبوع'); };
   }
-  async function importExcel() { if (!ERP.auth.require('products.manage')) return; const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv'; inp.onchange = async () => { const f = inp.files[0]; if (!f) return; const l = ERP.ui.loading('جاري الاستيراد...'); try { const r = await ERP.backup.importProducts(f); ERP.ui.success(`تم: ${r.added} جديد، ${r.updated} محدّث`); } catch (err) { ERP.ui.error(err.message); } l.close(); }; inp.click(); }
-  function template() { if (typeof XLSX === 'undefined') return ERP.ui.error('مكتبة Excel غير متاحة'); const ws = XLSX.utils.json_to_sheet([{ 'الاسم': 'مثال منتج', 'الكود': 'PRD-00001', 'الباركود': '6221000000000', 'الفئة': 'أغذية', 'التكلفة': 10, 'السعر': 12, 'المخزون': 50, 'الحد الأدنى': 5 }]); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'products'); XLSX.writeFile(wb, 'products-template.xlsx'); }
+  /* Excel import/template → مركز الاستيراد (preview, validation, undo) */
+  function importExcel() { if (!ERP.auth.require('products.manage')) return; ERP.views.imports.open('products'); }
+  function template() { try { ERP.importCenter.template('products'); } catch (err) { ERP.ui.error(err.message); } }
 
   ERP.views.products = { openForm, remove, details, schedulePrice, scheduleList, labelQueue, printLabels: ids => printLabels(Array.isArray(ids) && typeof ids[0] === 'string' ? P().byIds(ids) : ids), manageCategories, refresh: () => applyF() };
   ERP.router.register({

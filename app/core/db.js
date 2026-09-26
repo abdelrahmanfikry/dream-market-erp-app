@@ -223,7 +223,7 @@ window.ERP = window.ERP || {};
     ['receipt', 'payments', 'no', 'receipt'], ['payment', 'payments', 'no', 'payment'], ['expense', 'expenses', 'no', 'expense'], ['journal', 'journal', 'no', 'journal'],
     ['transfer', 'transfers', 'no', 'transfer'], ['stocktake', 'stocktakes', 'no', 'stocktake'], ['quotation', 'quotations', 'no', 'quotation'], ['order', 'orders', 'no', '=ORD'],
     ['SHIFT', 'shifts', 'no', '=SH'], ['BTRF', 'transfers', 'no', /^BT-.+-(\d+)$/], ['BTRF_IN', 'transfers', 'no', /^BR-.+-(\d+)$/],
-    ['PRD', 'products', 'code', '=PRD'], ['CUS', 'customers', 'code', '=CUS'], ['SUP', 'suppliers', 'code', '=SUP'], ['EMP', 'employees', 'code', '=EMP'], ['AST', 'assets', 'code', '=AST'],
+    ['PRD', 'products', 'code', '=PRD'], ['CUS', 'customers', 'code', '=CUS'], ['SUP', 'suppliers', 'code', '=SUP'], ['EMP', 'employees', 'code', '=EMP'], ['AST', 'assets', 'code', '=AST'], ['IMP', 'importBatches', 'no', '=IMP'],
   ];
   const reEsc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   function raiseSeqs() {
