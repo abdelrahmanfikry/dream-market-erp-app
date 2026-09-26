@@ -3,7 +3,9 @@
    slow-moving / dead stock, shrinkage & waste, weekday × hour heatmap.
    Sales figures come from the daily aggregate buckets (ERP.agg, base quantities, net of returns);
    results are cached per (range, collection revision) so re-renders never rescan.
-   Revenue = invoice line totals (after line/promo discounts, before invoice-level discount).
+   Revenue is NET: ex-VAT, after line/promo discounts AND the invoice-level + loyalty discounts (allocated to the lines
+   proportionally — ERP.agg.lineNets), returns net of their own allocations; profit = net revenue − COGS. Totals therefore
+   reconcile with ERP.reports.salesSummary(...).netSales (net sales ex-VAT / delivery fees) — see AN.reconcile («مطابقة»).
    ========================================================================== */
 window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
 (function () {
@@ -20,10 +22,10 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
       return memo(`pt:${from}:${to}:${ver('sales')}`, () => {
         const m = new Map();
         for (const { b } of ERP.agg.saleDays(from, to)) {
-          b.products.forEach((p, k) => { const o = m.get(k) || { productId: p.productId, name: p.name, qty: 0, total: 0, cost: 0, count: 0 }; o.qty += p.qty; o.total += p.total; o.cost += p.cost; o.count += p.count; m.set(k, o); });
-          b.retItems.forEach((r, k) => { const o = m.get(k) || { productId: typeof k === 'string' && ERP.db.collection('products').get(k) ? k : null, name: String(k), qty: 0, total: 0, cost: 0, count: 0 }; o.qty -= r.qty; o.total -= r.total; o.cost -= r.cost; m.set(k, o); });
+          b.products.forEach((p, k) => { const o = m.get(k) || { productId: p.productId, name: p.name, qty: 0, total: 0, lineTotal: 0, cost: 0, count: 0 }; o.qty += p.qty; o.total += p.net ?? p.total; o.lineTotal += p.total; o.cost += p.cost; o.count += p.count; m.set(k, o); });
+          b.retItems.forEach((r, k) => { const o = m.get(k) || { productId: typeof k === 'string' && ERP.db.collection('products').get(k) ? k : null, name: String(k), qty: 0, total: 0, lineTotal: 0, cost: 0, count: 0 }; o.qty -= r.qty; o.total -= r.net ?? r.total; o.lineTotal -= r.total; o.cost -= r.cost; m.set(k, o); });
         }
-        return [...m.values()].map(o => ({ ...o, qty: u.round(o.qty, 3), total: u.round(o.total), cost: u.round(o.cost), profit: u.round(o.total - o.cost) }));
+        return [...m.values()].map(o => ({ ...o, qty: u.round(o.qty, 3), total: u.round(o.total), lineTotal: u.round(o.lineTotal), cost: u.round(o.cost), profit: u.round(o.total - o.cost) }));
       });
     },
     /** A = items making the first 80% of the metric, B = next 15%, C = the rest (and anything ≤ 0).
@@ -36,6 +38,12 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
       const sum = { A: { count: 0, value: 0 }, B: { count: 0, value: 0 }, C: { count: 0, value: 0 } };
       out.forEach(r => { sum[r.cls].count++; sum[r.cls].value += Math.max(0, u.num(r[key])); });
       return { rows: out, summary: sum, total };
+    },
+    /** «مطابقة»: analytics totals vs the sales report for the same period → { revenue, reportNet, diff, cogs, reportCogs, cogsDiff } */
+    reconcile(from = null, to = null) {
+      const rows = AN.productTotals(from, to), rep = ERP.reports.salesSummary(from, to);
+      const revenue = u.round(u.sum(rows, 'total')), cogs = u.round(u.sum(rows, 'cost')), reportNet = u.round(rep.netSales), reportCogs = u.round(rep.cogs);
+      return { revenue, reportNet, diff: u.round(revenue - reportNet), cogs, reportCogs, cogsDiff: u.round(cogs - reportCogs) };
     },
     abc({ from = null, to = null, by = 'total' } = {}) { return AN.abcClassify(AN.productTotals(from, to), by === 'profit' ? 'profit' : 'total'); },
     /** by = 'category' | 'supplier' → [{ id, name, revenue, cogs, profit, margin, qty, products }] */
@@ -103,6 +111,10 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
   const CLS = { A: 'success', B: 'warning', C: 'neutral' };
   const pct = n => `${u.fmtNum(n, 1)}%`;
   const card = (icon, kind, label, val) => `<div class="card kpi"><div class="kpi-icon ${kind}"><i class="fas fa-${icon}"></i></div><div class="kpi-body"><div class="kpi-label">${label}</div><div class="kpi-value" style="font-size:1.15rem">${val}</div></div></div>`;
+  function recHtml(R) {
+    const r = AN.reconcile(R.from, R.to); const ok = Math.abs(r.diff) < 0.05 && Math.abs(r.cogsDiff) < 0.05;
+    return `<i class="fas fa-${ok ? 'circle-check text-success' : 'triangle-exclamation text-warning'}"></i> <strong>مطابقة:</strong> صافي الإيراد هنا ${u.fmtMoney(r.revenue)} · صافي المبيعات في تقرير المبيعات (بدون ض.ق.م ورسوم التوصيل) ${u.fmtMoney(r.reportNet)}${Math.abs(r.diff) >= 0.005 ? ` · الفرق ${u.fmtMoney(r.diff)}` : ''} — التكلفة ${u.fmtMoney(r.cogs)} مقابل ${u.fmtMoney(r.reportCogs)}${Math.abs(r.cogsDiff) >= 0.005 ? ` (فرق ${u.fmtMoney(r.cogsDiff)})` : ''}`;
+  }
   function mkTable(id, opts) { tables[id] = ERP.ui.table({ el: `#an-t-${id}`, rows: [], exportPerm: 'reports.view', pageSize: 50, ...opts }); return tables[id]; }
 
   function renderAbc() {
@@ -110,17 +122,17 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
     const S = res.summary, tot = res.total || 0;
     el.querySelector('#an-abc-kpis').innerHTML = ['A', 'B', 'C'].map(c => card(c === 'A' ? 'star' : c === 'B' ? 'circle-half-stroke' : 'circle', CLS[c], `فئة ${c} — ${S[c].count} صنف`, `${u.fmtMoney(S[c].value)} <span class="text-xs muted">(${pct(tot ? S[c].value / tot * 100 : 0)})</span>`)).join('');
     ERP.charts.doughnut('#an-abc-chart', { labels: ['A', 'B', 'C'].map(c => `فئة ${c} (${S[c].count} صنف)`), data: ['A', 'B', 'C'].map(c => u.round(S[c].value)), colors: ['#16a34a', '#f59e0b', '#94a3b8'] });
-    tables.abc.setRows(res.rows);
+    tables.abc.setRows(res.rows); el.querySelector('#an-abc-rec').innerHTML = recHtml(R);
     current = { title: `تحليل ABC حسب ${abcBy === 'profit' ? 'الربح' : 'الإيراد'}`, columns: [{ label: 'الفئة' }, { label: 'الصنف' }, { label: 'الكمية', num: true }, { label: 'الإيراد', num: true }, { label: 'الربح', num: true }, { label: 'النسبة', num: true }, { label: 'التراكمي', num: true }], rows: res.rows.map(r => [r.cls, r.name, u.fmtQty(r.qty), u.fmtNum(r.total), u.fmtNum(r.profit), pct(r.share), pct(r.cumShare)]) };
     return key;
   }
   function renderProf() {
     const R = range(); const rows = AN.profitability({ from: R.from, to: R.to, by: profBy });
     const tr = u.sum(rows, 'revenue'), tp = u.sum(rows, 'profit');
-    el.querySelector('#an-prof-kpis').innerHTML = card('sack-dollar', 'primary', 'الإيراد', u.fmtMoney(tr)) + card('box', 'danger', 'التكلفة', u.fmtMoney(u.sum(rows, 'cogs'))) + card('chart-line', 'success', 'مجمل الربح', u.fmtMoney(tp)) + card('percent', 'info', 'الهامش', pct(tr ? tp / tr * 100 : 0));
+    el.querySelector('#an-prof-kpis').innerHTML = card('sack-dollar', 'primary', 'صافي الإيراد (بدون ض.ق.م)', u.fmtMoney(tr)) + card('box', 'danger', 'التكلفة', u.fmtMoney(u.sum(rows, 'cogs'))) + card('chart-line', 'success', 'مجمل الربح', u.fmtMoney(tp)) + card('percent', 'info', 'الهامش', pct(tr ? tp / tr * 100 : 0));
     const top = rows.slice(0, 12);
     ERP.charts.bar('#an-prof-chart', { labels: top.map(r => r.name), series: [{ label: 'الإيراد', data: top.map(r => r.revenue) }, { label: 'مجمل الربح', data: top.map(r => r.profit), color: '#16a34a' }] });
-    tables.prof.setRows(rows);
+    tables.prof.setRows(rows); el.querySelector('#an-prof-rec').innerHTML = recHtml(R);
     current = { title: `الربحية حسب ${profBy === 'supplier' ? 'المورد' : 'الفئة'}`, columns: [{ label: profBy === 'supplier' ? 'المورد' : 'الفئة' }, { label: 'الأصناف', num: true }, { label: 'الكمية', num: true }, { label: 'الإيراد', num: true }, { label: 'التكلفة', num: true }, { label: 'مجمل الربح', num: true }, { label: 'الهامش', num: true }], rows: rows.map(r => [r.name, r.products, u.fmtQty(r.qty), u.fmtNum(r.revenue), u.fmtNum(r.cogs), u.fmtNum(r.profit), pct(r.margin)]) };
   }
   function renderSlow() {
@@ -152,8 +164,8 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
       root.innerHTML = `<div class="page-header"><div><h2><i class="fas fa-chart-column"></i> تحليلات متقدمة</h2><div class="desc">ABC، الربحية، الراكد، الفاقد، وأوقات الذروة</div></div>
         <div class="page-actions"><div class="pills" id="an-period">${['today', 'week', 'month', '30d', 'quarter', 'year', 'all'].map(k => `<button class="pill ${k === period ? 'active' : ''}" data-p="${k}">${ERP.reports.period(k).label}</button>`).join('')}<button class="pill" data-p="custom">مخصص</button></div><div id="an-custom" class="flex gap-2 hidden"><input type="date" id="an-from"><input type="date" id="an-to"></div><button class="btn btn-outline" id="an-print"><i class="fas fa-print"></i> طباعة</button></div></div>
         <div class="tabs mb-3" id="an-tabs"><button class="tab active" data-t="abc">تحليل ABC</button><button class="tab" data-t="prof">الربحية</button><button class="tab" data-t="slow">الراكد والميت</button><button class="tab" data-t="shr">الفاقد والهالك</button><button class="tab" data-t="heat">أوقات الذروة</button></div>
-        <div class="an-pane" data-p="abc"><div class="flex gap-2 mb-3 items-center"><span class="text-sm">التصنيف حسب</span><div class="pills" id="an-abc-by"><button class="pill active" data-v="total">الإيراد</button><button class="pill" data-v="profit">الربح</button></div><span class="text-xs muted">A = أول 80% · B = الـ15% التالية · C = آخر 5%</span></div><div class="kpi-grid mb-3" id="an-abc-kpis"></div><div class="grid" style="grid-template-columns:minmax(0,280px) minmax(0,1fr);gap:1rem;align-items:start"><div class="card"><div class="card-body" style="height:260px"><canvas id="an-abc-chart"></canvas></div></div><div id="an-t-abc"></div></div></div>
-        <div class="an-pane hidden" data-p="prof"><div class="flex gap-2 mb-3 items-center"><span class="text-sm">حسب</span><div class="pills" id="an-prof-by"><button class="pill active" data-v="category">الفئة</button><button class="pill" data-v="supplier">المورد</button></div></div><div class="kpi-grid mb-3" id="an-prof-kpis"></div><div class="card mb-3"><div class="card-body" style="height:260px"><canvas id="an-prof-chart"></canvas></div></div><div id="an-t-prof"></div></div>
+        <div class="an-pane" data-p="abc"><div class="flex gap-2 mb-3 items-center"><span class="text-sm">التصنيف حسب</span><div class="pills" id="an-abc-by"><button class="pill active" data-v="total">الإيراد</button><button class="pill" data-v="profit">الربح</button></div><span class="text-xs muted">A = أول 80% · B = الـ15% التالية · C = آخر 5%</span></div><div class="kpi-grid mb-3" id="an-abc-kpis"></div><div class="grid" style="grid-template-columns:minmax(0,280px) minmax(0,1fr);gap:1rem;align-items:start"><div class="card"><div class="card-body" style="height:260px"><canvas id="an-abc-chart"></canvas></div></div><div id="an-t-abc"></div></div><div class="text-xs muted mt-2" id="an-abc-rec"></div></div>
+        <div class="an-pane hidden" data-p="prof"><div class="flex gap-2 mb-3 items-center"><span class="text-sm">حسب</span><div class="pills" id="an-prof-by"><button class="pill active" data-v="category">الفئة</button><button class="pill" data-v="supplier">المورد</button></div></div><div class="kpi-grid mb-3" id="an-prof-kpis"></div><div class="card mb-3"><div class="card-body" style="height:260px"><canvas id="an-prof-chart"></canvas></div></div><div id="an-t-prof"></div><div class="text-xs muted mt-2" id="an-prof-rec"></div></div>
         <div class="an-pane hidden" data-p="slow"><div class="flex gap-2 mb-3 items-center"><label class="text-sm">بلا مبيعات منذ <input type="number" id="an-slow-days" value="${slowDays}" min="1" style="width:80px"> يوم</label></div><div class="kpi-grid mb-3" id="an-slow-kpis"></div><div id="an-t-slow"></div></div>
         <div class="an-pane hidden" data-p="shr"><div class="kpi-grid mb-3" id="an-shr-kpis"></div><div class="card mb-3"><div class="card-body" style="height:240px"><canvas id="an-shr-chart"></canvas></div></div><div id="an-t-shr"></div></div>
         <div class="an-pane hidden" data-p="heat" id="an-heat"></div>`;
@@ -161,7 +173,7 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
         { key: 'cls', label: 'الفئة', render: r => u.badge(r.cls, CLS[r.cls]) },
         { key: 'name', label: 'الصنف', render: (r, t) => u.highlight(r.name, t) },
         { key: 'qty', label: 'الكمية', num: true, render: r => u.fmtQty(r.qty) },
-        { key: 'total', label: 'الإيراد', num: true, render: r => u.fmtNum(r.total), footer: rs => u.fmtMoney(u.sum(rs, 'total')) },
+        { key: 'total', label: 'صافي الإيراد', num: true, render: r => u.fmtNum(r.total), footer: rs => u.fmtMoney(u.sum(rs, 'total')) },
         { key: 'profit', label: 'الربح', num: true, render: r => `<span class="${r.profit < 0 ? 'text-danger' : ''}">${u.fmtNum(r.profit)}</span>`, footer: rs => u.fmtMoney(u.sum(rs, 'profit')) },
         { key: 'share', label: 'النسبة', num: true, render: r => pct(r.share) },
         { key: 'cumShare', label: 'التراكمي', num: true, render: r => pct(r.cumShare) }] });

@@ -249,7 +249,13 @@ window.ERP = window.ERP || {};
     setStatus('connecting');
     const bd = await S.adapter.get(base());
     if (!S.state.baseline) {
-      if (!bd) { await pushAll().catch(() => { }); return; } // brand-new branch namespace → first full upload
+      if (!bd) { // brand-new branch namespace → first full upload — only while the company stays within the licensed branch count
+        if (ERP.license && ERP.license.branchLimit && ERP.license.branchLimit() !== Infinity) {
+          const codes = new Set((await S.adapter.list(`companies/${S.uid}/branches`)).map(d => (d.data && d.data.code) || d.id)); codes.add(br().code);
+          try { ERP.license.requireBranchSlot(codes.size); } catch (er) { logErr(er.message); return setStatus('error', er.message); }
+        }
+        await pushAll().catch(() => { }); return;
+      }
       S.needsChoice = { lastSync: bd.lastSync || bd.beat || null, name: bd.name || '', code: bd.code || br().code, sameDev: bd.dev === devId() };
       return setStatus('choice', null);
     }

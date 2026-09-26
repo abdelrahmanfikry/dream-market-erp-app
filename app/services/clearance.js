@@ -10,7 +10,9 @@
      promos still apply on top, as for every item promo.
    - batch-quantity aware (default mode 'batch'): the discount covers at most the
      units that sit in near-expiry batches of the POS warehouse (FEFO order, each
-     batch at its own tier); units beyond that are full price. Mode 'product'
+     batch at its own tier); units beyond that are full price. Expired batches are
+     skipped here AND by the sale's FEFO consumption (ERP.inventory.move), so the
+     discounted units are exactly the units that leave the near-expiry batches. Mode 'product'
      discounts the whole line at the tier of the earliest near-expiry batch.
    - guards: max discount cap %, excluded categories / products (product.noClearance),
      margin guard: net unit price never below cost × (1 + min margin %) unless
@@ -100,14 +102,14 @@ window.ERP = window.ERP || {};
     labelItems(rows, { copies = null, max = 200 } = {}) {
       return rows.filter(r => r.pct > 0).map(r => ({ product: r.product, qty: Math.max(1, Math.min(max, Math.ceil(copies ?? r.qty))), price: r.clearancePrice, oldPrice: r.price, clearance: true, clearanceText: `ينتهي ${u.fmtDate(r.batch.expiry)}` }));
     },
-    /** write off expired batches through the standard waste flow (stock move 'waste' + GL inv_loss). FEFO consumption in
-     *  ERP.inventory.move takes the earliest batches first — expired batches are always the earliest, so the right ones go */
+    /** write off expired batches through the standard waste flow (stock move 'waste' + GL inv_loss). Each waste move names
+     *  its batch explicitly — ERP.inventory.move's FEFO consumes NON-expired batches first, so it must not guess here */
     writeOffExpired({ warehouseId = null, productIds = null } = {}) {
       const done = []; let value = 0;
       cl.rows(warehouseId).filter(r => r.expired && (!productIds || productIds.includes(r.product.id))).forEach(r => {
         const p = P().get(r.product.id); const have = ERP.inventory.whQty(p, r.warehouseId);
         const qty = u.round(Math.min(r.qty, Math.max(0, have)), 3); if (qty <= 0) return;
-        const mv = ERP.inventory.waste({ productId: p.id, warehouseId: r.warehouseId, qty, reason: `انتهاء صلاحية${r.batch.batchNo ? ' — دفعة ' + r.batch.batchNo : ''} (${r.batch.expiry})` });
+        const mv = ERP.inventory.waste({ productId: p.id, warehouseId: r.warehouseId, qty, reason: `انتهاء صلاحية${r.batch.batchNo ? ' — دفعة ' + r.batch.batchNo : ''} (${r.batch.expiry})`, batch: { batchNo: r.batch.batchNo || '', expiry: r.batch.expiry } });
         const v = -u.num(mv && mv.value); value += v; done.push({ productId: p.id, name: p.name, qty, expiry: r.batch.expiry, value: v });
       });
       if (done.length) ERP.audit.log('stock.waste', `شطب المنتهي: ${done.length} دفعة، قيمة ${u.fmtMoney(value)}`);
@@ -148,7 +150,7 @@ window.ERP = window.ERP || {};
           else if (b.dataset.clWaste) {
             const r = byId(b.dataset.clWaste); if (!r) return;
             const q = await ERP.ui.prompt(`كمية الهالك من "${e(r.product.name)}" — دفعة ${e(r.batch.batchNo || '—')} (${u.fmtDate(r.batch.expiry)})`, { title: 'نقل للهالك', type: 'number', value: r.qty }); if (q === null || !(u.num(q) > 0)) return;
-            ERP.inventory.waste({ productId: r.product.id, warehouseId: r.warehouseId, qty: Math.min(u.num(q), r.qty), reason: r.expired ? 'انتهاء صلاحية' : `قرب انتهاء (${r.batch.expiry})` }); ERP.ui.success('تم النقل للهالك'); cl.renderPanel(box, wh);
+            ERP.inventory.waste({ productId: r.product.id, warehouseId: r.warehouseId, qty: Math.min(u.num(q), r.qty), reason: r.expired ? 'انتهاء صلاحية' : `قرب انتهاء (${r.batch.expiry})`, batch: { batchNo: r.batch.batchNo || '', expiry: r.batch.expiry } }); ERP.ui.success('تم النقل للهالك'); cl.renderPanel(box, wh);
           }
         } catch (err) { ERP.ui.error(err.message); }
       };

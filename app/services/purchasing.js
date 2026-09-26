@@ -85,8 +85,10 @@ window.ERP = window.ERP || {};
         const f = ERP.units.lineUnit(it) ? u.num(it.factor, 1) : 1; // e.g. 5 cartons × 240 → 120 pieces × 10
         const netCost = u.round(cost * (1 - dRatio), 4);
         const netBase = u.round(cost * (1 - dRatio) / f, 4);
-        const mv = ERP.inventory.move({ productId: it.productId, warehouseId: po.warehouseId, qty: u.round(qty * f, 3), type: 'purchase', unitCost: netBase, refType: 'purchase', refId: po.id, note: `استلام ${po.no}`, batch: (r.expiry || it.expiry) ? { batchNo: r.batchNo || it.batchNo || po.no, expiry: r.expiry || it.expiry } : null, silent: true });
+        const bt = (r.expiry || it.expiry) ? { batchNo: r.batchNo || it.batchNo || po.no, expiry: r.expiry || it.expiry } : null;
+        const mv = ERP.inventory.move({ productId: it.productId, warehouseId: po.warehouseId, qty: u.round(qty * f, 3), type: 'purchase', unitCost: netBase, refType: 'purchase', refId: po.id, note: `استلام ${po.no}`, batch: bt, silent: true });
         it.received = u.round((it.received || 0) + qty, 3); it.cost = cost;
+        if (bt && mv && mv.batchAlloc) it.recvBatches = [...(it.recvBatches || []), ...mv.batchAlloc]; // purchase returns take from these batches first
         value += mv ? mv.value : 0;
         const p = ERP.db.collection('products').get(it.productId);
         if (p) {
@@ -147,8 +149,9 @@ window.ERP = window.ERP || {};
       return pay;
     },
     /** [cheques] undo a supplier payment: restores the bills it settled, the supplier balance, the GL entry and (cash) the open shift */
-    deletePayment(payId) {
+    deletePayment(payId, { cheque = false } = {}) {
       const p = PAY().get(payId); if (!p || p.type !== 'payment') return;
+      if (!cheque) { const ch = ERP.cheques && ERP.cheques.linkedTo(p); if (ch) throw new Error(`هذا السند مرتبط بشيك رقم ${ch.number}${ch.status === 'cleared' ? ' (تم صرفه)' : ''} — ألغِ الشيك من شاشة الشيكات`); }
       PO().all().filter(o => (o.payments || []).some(x => x.paymentId === payId)).forEach(o => { const a = u.round(u.sum(o.payments.filter(x => x.paymentId === payId), 'amount')); PO().update(o.id, { paid: u.round(Math.max(0, u.num(o.paid) - a)), due: u.round(u.num(o.due) + a), payments: o.payments.filter(x => x.paymentId !== payId) }, { silent: true }); });
       ERP.bus.emit('db:change', { collection: 'purchases', op: 'bulk' });
       pur.adjustSupplierBalance(p.partyId, p.amount);
@@ -177,7 +180,10 @@ window.ERP = window.ERP || {};
         need[p.id] = u.round((need[p.id] || 0) + qty * un.factor, 3);
         if (!allowNeg && ERP.inventory.whQty(p, wh) < need[p.id] - 0.0001) throw new Error(`رصيد غير كافٍ للمنتج "${p.name}" (المتاح ${u.fmtQty(ERP.inventory.whQty(p, wh))})`);
         const net = u.round(cost * (1 - dRatio), 4);
-        return { ...it, ...un, qty, baseQty: u.round(qty * un.factor, 3), cost: net, grossCost: cost, total: u.round(qty * net) };
+        // expiry batches: the PO's received batch(es) of this product go first (latest receipt first), then FEFO
+        const pl = po ? (po.items || []).filter(x => x.productId === p.id) : [];
+        const recv = pl.flatMap(x => (x.recvBatches && x.recvBatches.length ? x.recvBatches : (x.expiry && u.num(x.received) > 0 ? [{ batchNo: x.batchNo || po.no, expiry: x.expiry, qty: u.round(u.num(x.received) * (ERP.units.lineUnit(x) ? u.num(x.factor, 1) : 1), 3) }] : []))).reverse();
+        return { ...it, ...un, qty, baseQty: u.round(qty * un.factor, 3), cost: net, grossCost: cost, total: u.round(qty * net), ...(recv.length ? { fromBatches: recv } : {}) };
       });
       const subtotal = u.round(u.sum(lines, 'total'));
       const taxRate = po && u.num(po.taxPosted) > 0 ? u.num(po.taxRate) : 0; // only reverse input VAT that was actually posted
@@ -185,7 +191,7 @@ window.ERP = window.ERP || {};
       const total = u.round(subtotal + tax);
       const ret = PO().insert({ no: ERP.db.nextSeq('PRET', 'PRET', 5), date: u.now(), type: 'return', supplierId, supplierName: sup.name, items: lines, subtotal, discount: 0, taxRate, tax, total, paid: 0, due: 0, status: 'received', refPoId: poId, notes, userId: ERP.auth.current()?.id, warehouseId: wh });
       let invValue = 0;
-      lines.forEach(l => { const mv = ERP.inventory.move({ productId: l.productId, warehouseId: wh, qty: -l.baseQty, type: 'return_out', refType: 'purchase_return', refId: ret.id, note: `مرتجع للمورد ${sup.name}`, allowNegative: allowNeg, silent: true }); if (mv) invValue += -mv.value; });
+      lines.forEach(l => { const mv = ERP.inventory.move({ productId: l.productId, warehouseId: wh, qty: -l.baseQty, type: 'return_out', refType: 'purchase_return', refId: ret.id, note: `مرتجع للمورد ${sup.name}`, allowNegative: allowNeg, batchAlloc: l.fromBatches || null, silent: true }); if (mv) invValue += -mv.value; });
       PO().update(ret.id, { invValue: u.round(invValue) }, { silent: true });
       pur.adjustSupplierBalance(supplierId, -total);
       ERP.accounting.postPurchaseReturn(ret, u.round(invValue));

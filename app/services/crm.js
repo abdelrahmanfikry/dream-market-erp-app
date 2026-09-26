@@ -55,8 +55,10 @@ window.ERP = window.ERP || {};
       ERP.audit.log('customer.receipt', `${c.name}: ${u.fmtMoney(amount)} (${method})`, pay.id);
       return pay;
     },
-    deleteReceipt(payId) {
+    /** opts.cheque = true only from ERP.cheques (bounce / cancel keep the cheque record consistent themselves) */
+    deleteReceipt(payId, { cheque = false } = {}) {
       const p = PAY().get(payId); if (!p || p.type !== 'receipt') return;
+      if (!cheque) { const ch = ERP.cheques && ERP.cheques.linkedTo(p); if (ch) throw new Error(`هذا السند مرتبط بشيك رقم ${ch.number}${ch.status === 'collected' ? ' (تم تحصيله)' : ''} — ألغِ الشيك${ch.status === 'collected' ? ' أو سجّل ارتداده' : ''} من شاشة الشيكات`); }
       // undo the allocations on the invoices (restore paid/due/status)
       const touched = [];
       SALES().all().filter(s => (s.payments || []).some(x => x.receiptId === payId)).forEach(s => {

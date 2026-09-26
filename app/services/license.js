@@ -137,6 +137,19 @@ window.ERP = window.ERP || {};
     _nudge: u.debounce(() => { if (!document.getElementById('lic-modal')) lic.showActivation(); }, 300),
     has(feature) { return !!(st.payload && (st.payload.features || []).includes(feature)); },
     limits() { return { branches: st.payload ? u.num(st.payload.branches) || 1 : 1, plan: st.payload ? st.payload.plan : 'trial' }; },
+    /** licensed branch count: trial = 1, a license = its `branches` (≥ 1). Unlimited in dev mode / self-tests (like requireActive);
+     *  tests simulate a real install with ERP.license._force = { active: true, branches: N } */
+    branchLimit() {
+      if (lic._force) return lic._force.branches != null ? Math.max(1, u.num(lic._force.branches)) : lic.limits().branches;
+      if (ERP.testing || lic.isDev()) return Infinity;
+      return lic.limits().branches;
+    },
+    /** throws when having `count` branches would exceed the license (ERP.branches.register, cloud branch namespaces) */
+    requireBranchSlot(count) {
+      const max = lic.branchLimit(); if (count <= max) return true;
+      const err = new Error(`تم الوصول للحد الأقصى للفروع في الترخيص الحالي (${max} ${max === 1 ? 'فرع' : 'فروع'}) — لإضافة فرع جديد اطلب ترخيصاً بعدد فروع أكبر (الإعدادات ← الترخيص)`);
+      err.code = 'LICENSE_BRANCHES'; throw err;
+    },
 
     /* ---------- machine code ---------- */
     async machineCode() {
@@ -223,7 +236,7 @@ window.ERP = window.ERP || {};
       const s = lic.state(); const locked = !lic.statusActive(); const p = s.payload;
       const k = s.status === 'licensed' ? 'success' : locked ? 'danger' : 'warning';
       return `<div class="alert alert-${k} mb-3"><i class="fas fa-${s.status === 'licensed' ? 'circle-check' : locked ? 'lock' : 'hourglass-half'}"></i> <strong>${e(lic.statusText(s))}</strong>${locked ? '<div class="text-sm mt-1">يمكنك الدخول والعرض وطباعة التقارير والتصدير وأخذ نسخة احتياطية، لكن لا يمكن تسجيل مبيعات أو مشتريات أو حركات مخزون حتى التفعيل.</div>' : ''}${s.dev ? '<div class="text-xs mt-1">وضع المطوّر: النظام مفتوح على localhost ولن يُقفل.</div>' : ''}</div>
-        ${p ? `<div class="grid grid-2 gap-2 mb-3 text-sm"><div><span class="muted">المحل:</span> <strong>${e(p.store || '')}</strong></div><div><span class="muted">الباقة:</span> <strong>${e(PLANS[p.plan] || p.plan)}</strong></div><div><span class="muted">عدد الفروع:</span> <strong class="num">${e(p.branches || 1)}</strong></div><div><span class="muted">الانتهاء:</span> <strong>${p.expires ? u.fmtDate(p.expires) : 'مدى الحياة'}</strong></div><div><span class="muted">رقم الترخيص:</span> <span class="num">${e(p.id || '')}</span></div><div><span class="muted">تاريخ الإصدار:</span> ${p.issued ? u.fmtDate(p.issued) : '—'}</div></div>` : `<div class="text-sm mb-3"><span class="muted">بداية الفترة التجريبية:</span> ${u.fmtDate(s.trial.start)} · <span class="muted">تنتهي:</span> ${u.fmtDate(s.trial.ends)}</div>`}
+        ${p ? `<div class="grid grid-2 gap-2 mb-3 text-sm"><div><span class="muted">المحل:</span> <strong>${e(p.store || '')}</strong></div><div><span class="muted">الباقة:</span> <strong>${e(PLANS[p.plan] || p.plan)}</strong></div><div><span class="muted">الفروع المسموحة:</span> <strong class="num">${e(p.branches || 1)}</strong></div><div><span class="muted">الانتهاء:</span> <strong>${p.expires ? u.fmtDate(p.expires) : 'مدى الحياة'}</strong></div><div><span class="muted">رقم الترخيص:</span> <span class="num">${e(p.id || '')}</span></div><div><span class="muted">تاريخ الإصدار:</span> ${p.issued ? u.fmtDate(p.issued) : '—'}</div></div>` : `<div class="text-sm mb-3"><span class="muted">بداية الفترة التجريبية:</span> ${u.fmtDate(s.trial.start)} · <span class="muted">تنتهي:</span> ${u.fmtDate(s.trial.ends)} · <span class="muted">الفروع المسموحة:</span> <strong class="num">1</strong></div>`}
         <div class="setting-row"><div class="info"><strong>كود الجهاز</strong><span>أرسله للدعم الفني لإصدار ترخيص لهذا الجهاز</span></div><div class="flex gap-2 items-center"><code class="num" id="lic-code" style="font-size:1.15rem;letter-spacing:.08em;direction:ltr;padding:.3rem .6rem;border-radius:8px;background:rgba(127,127,127,.12)">${e(s.machine)}</code><button type="button" class="btn btn-sm btn-outline" data-lic="copy"><i class="fas fa-copy"></i> نسخ</button></div></div>
         <div class="form-group mt-3"><label>لصق الترخيص</label><textarea id="lic-input" rows="3" dir="ltr" spellcheck="false" style="font-family:monospace;font-size:.8rem" placeholder="eyJ2IjoxLC..."></textarea></div>
         <div id="lic-err" class="alert alert-danger hidden"></div>

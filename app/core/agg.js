@@ -20,6 +20,27 @@ window.ERP = window.ERP || {};
   const bq = it => it.baseQty != null ? num(it.baseQty) : num(it.qty) * (num(it.factor) || 1);
   const baseName = it => { const p = it.productId && ERP.db.collection('products').get(it.productId); return p ? p.name : it.name; };
   const isInRange = (day, from, to) => (!from || day >= from) && (!to || day <= to);
+  /** NET revenue per invoice line (ex-VAT, after line/promo discounts AND the invoice-level + loyalty discounts), so that
+   *  Σ lines = document total − VAT − delivery fee exactly (= the sales report's net sales ex-VAT):
+   *  - sale: weight = line total − its share of the invoice discount − (tax-inclusive prices: its VAT share); the document
+   *    target (total − tax − deliveryFee, i.e. after loyalty) is spread over the lines by that weight
+   *  - return: target = refund − VAT (the return already carries its own discount/loyalty allocation), spread by line total */
+  const cogsOf = it => (it.cogs != null ? num(it.cogs) : num(it.cost) * num(it.qty));
+  function lineNets(s) {
+    const items = s.items || []; if (!items.length) return [];
+    const sumT = items.reduce((a, it) => a + num(it.total), 0);
+    const target = num(s.total) - num(s.tax) - (s.type === 'return' ? 0 : num(s.deliveryFee));
+    let w;
+    if (s.type === 'return') w = items.map(it => num(it.total));
+    else {
+      const invD = num(s.invoiceDiscount), ratio = sumT ? (sumT - invD) / sumT : 1;
+      const taxable = num(s.subtotal) - num(s.discount), loyalty = num(s.loyaltyDiscount), fee = num(s.deliveryFee);
+      const incl = s.taxInclusive != null ? !!s.taxInclusive : Math.abs(num(s.total) - (taxable + num(s.tax) - loyalty + fee)) > 0.011; // older docs: exclusive ⇔ VAT was added on top
+      w = items.map(it => { const t = num(it.total) * ratio; return num(s.tax) > 0 && incl ? t - num(it.taxAmount) * ratio : t; });
+    }
+    const sw = w.reduce((a, x) => a + x, 0);
+    return w.map(x => (sw ? (target * x) / sw : target / items.length));
+  }
 
   const TRACKED = { sales: true, journal: true };
   const ST = {};   // name -> state {built, ver, buckets:Map<day,bl>, dayIds:Map<day,Set<id>>, idDay:Map<id,day>, cust, custVer}
@@ -31,7 +52,7 @@ window.ERP = window.ERP || {};
   /* ---------------- sales bucket ---------------- */
   function newSalesBucket() {
     return {
-      count: 0, gross: 0, retCount: 0, retTot: 0, retCash: 0,
+      count: 0, gross: 0, retCount: 0, retTot: 0, retCash: 0, fees: 0,
       items: 0, cogs: 0, retCogs: 0, tax: 0, retTax: 0, discount: 0, cash: 0, credit: 0, profit: 0,
       custSet: new Set(), methods: new Map(), products: new Map(), retItems: new Map(), customers: new Map(),
       hoursT: new Array(24).fill(0), hoursC: new Array(24).fill(0),
@@ -44,12 +65,13 @@ window.ERP = window.ERP || {};
     if (s.type === 'return') {
       bl.retCount++; bl.retTot += num(s.total); bl.retCogs += num(s.cogs); bl.retTax += num(s.tax);
       payments.forEach(p => { if (!p.isCredit && !isGift(p)) bl.retCash += num(p.amount); });
-      items.forEach(it => { const k = it.productId || it.name; const r = bl.retItems.get(k) || { qty: 0, total: 0, cost: 0, count: 0 }; r.qty += bq(it); r.total += num(it.total); r.cost += num(it.cost) * num(it.qty); r.count++; bl.retItems.set(k, r); });
+      const nets = lineNets(s);
+      items.forEach((it, i) => { const k = it.productId || it.name; const r = bl.retItems.get(k) || { qty: 0, total: 0, net: 0, cost: 0, count: 0 }; r.qty += bq(it); r.total += num(it.total); r.net += nets[i]; r.cost += cogsOf(it); r.count++; bl.retItems.set(k, r); });
       return;
     }
     bl.count++; bl.gross += num(s.total); bl.profit += num(s.profit);
     let qty = 0; items.forEach(it => (qty += bq(it))); bl.items += qty;
-    bl.cogs += num(s.cogs); bl.tax += num(s.tax); bl.discount += num(s.discount); bl.credit += num(s.due);
+    bl.cogs += num(s.cogs); bl.tax += num(s.tax); bl.discount += num(s.discount); bl.credit += num(s.due); bl.fees += num(s.deliveryFee);
     let cash = 0;
     payments.forEach(p => { if (!p.isCredit && !p.receiptId && !isGift(p)) cash += num(p.amount); }); // gift cards are prepaid liability, not cash
     cash -= num(s.change); bl.cash += cash;
@@ -66,10 +88,11 @@ window.ERP = window.ERP || {};
       c.total += num(s.total); c.count++; c.profit += num(s.profit);
       bl.customers.set(s.customerId, c);
     }
-    items.forEach(it => {
+    const nets = lineNets(s);
+    items.forEach((it, i) => {
       const k = it.productId || it.name;
-      const p = bl.products.get(k) || { productId: it.productId, name: baseName(it), qty: 0, total: 0, cost: 0, count: 0 };
-      p.qty += bq(it); p.total += num(it.total); p.cost += num(it.cost) * num(it.qty); p.count++;
+      const p = bl.products.get(k) || { productId: it.productId, name: baseName(it), qty: 0, total: 0, net: 0, cost: 0, count: 0 };
+      p.qty += bq(it); p.total += num(it.total); p.net += nets[i]; p.cost += cogsOf(it); p.count++;
       bl.products.set(k, p);
     });
     const dt = u.parseDate(s.date);
@@ -216,5 +239,5 @@ window.ERP = window.ERP || {};
     ERP.bus.on('db:reset', onReset);
   }
 
-  ERP.agg = { state, ensure, saleDays, journalRaw, openDues, dayOf };
+  ERP.agg = { state, ensure, saleDays, journalRaw, openDues, dayOf, lineNets };
 })();

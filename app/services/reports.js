@@ -22,17 +22,18 @@ window.ERP = window.ERP || {};
     salesSummary(from, to) {
       const days = ERP.agg.saleDays(from, to);
       let count = 0, gross = 0, returns = 0, returnsCount = 0, cogs = 0, retCogs = 0, tax = 0, retTax = 0;
-      let discount = 0, cash = 0, credit = 0, items = 0;
+      let discount = 0, cash = 0, credit = 0, items = 0, fees = 0;
       const custSet = new Set();
       for (const { b } of days) {
         count += b.count; gross += b.gross; returns += b.retTot; returnsCount += b.retCount;
         cogs += b.cogs; retCogs += b.retCogs; tax += b.tax; retTax += b.retTax;
-        discount += b.discount; cash += b.cash; credit += b.credit; items += b.items;
+        discount += b.discount; cash += b.cash; credit += b.credit; items += b.items; fees += b.fees || 0;
         b.custSet.forEach(c => custSet.add(c));
       }
       cogs -= retCogs; tax -= retTax;
       const net = gross - returns;
-      return { count, gross, returns, returnsCount, net, tax, cogs, grossProfit: net - tax - cogs, margin: net ? ((net - tax - cogs) / net) * 100 : 0, avg: count ? gross / count : 0, discounts: discount, items, cash, credit, customers: custSet.size };
+      // netSales = product revenue ex-VAT and ex-delivery fees, after every discount, net of returns (ERP.analytics reconciles to it)
+      return { count, gross, returns, returnsCount, net, tax, cogs, deliveryFees: fees, netSales: net - tax - fees, grossProfit: net - tax - cogs, margin: net ? ((net - tax - cogs) / net) * 100 : 0, avg: count ? gross / count : 0, discounts: discount, items, cash, credit, customers: custSet.size };
     },
     compare(kind) {
       const cur = R.period(kind);

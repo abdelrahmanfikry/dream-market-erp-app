@@ -10,6 +10,8 @@
    - clear    : Dr أوراق الدفع / Cr البنك
    - bounce   : payment undone (bills reopen, AP back) + Dr الموردين / Cr أوراق الدفع and its reversal
    - cancel   : the receipt / payment is removed entirely (entered by mistake, cheque returned)
+   - a receipt / payment behind a live cheque cannot be deleted directly (crm.deleteReceipt / purchasing.deletePayment
+     refuse with «هذا السند مرتبط بشيك رقم …») — cancel / bounce the cheque instead so both stay consistent
    ========================================================================== */
 window.ERP = window.ERP || {};
 (function () {
@@ -110,7 +112,7 @@ window.ERP = window.ERP || {};
         if (c.status === 'collected') ERP.accounting.post({ memo: `عكس تحصيل شيك مرتد ${c.number}`, refType: 'cheque', refId: c.id, lines: [{ sys: 'cheques_in', debit: c.amount, desc: `شيك ${c.number}` }, { sys: c.collectAccountSys || 'bank', credit: c.amount, desc: 'ارتداد' }] });
         const pay = c.receiptId && PAY().get(c.receiptId);
         if (pay) {
-          ERP.crm.deleteReceipt(pay.id); // invoices reopen, customer balance back, receipt entry removed …
+          ERP.crm.deleteReceipt(pay.id, { cheque: true }); // invoices reopen, customer balance back, receipt entry removed …
           // … and the story is kept under the cheque: receipt at its original date, then the bounce
           ERP.accounting.post({ date: c.receiptDate || c.createdAt, memo: `استلام شيك ${c.number} — ${c.partyName} (إيصال ${c.receiptNo})`, refType: 'cheque', refId: c.id, lines: [{ sys: 'cheques_in', debit: c.amount, desc: `شيك ${c.number}` }, { sys: 'ar', credit: c.amount, desc: c.partyName }] });
           ERP.accounting.post({ memo: `ارتداد شيك ${c.number} — ${c.partyName}`, refType: 'cheque', refId: c.id, lines: [{ sys: 'ar', debit: c.amount, desc: c.partyName }, { sys: 'cheques_in', credit: c.amount, desc: `شيك مرتد ${c.number}` }] });
@@ -119,7 +121,7 @@ window.ERP = window.ERP || {};
         need(c, 'out', ['issued'], 'ارتداد الشيك');
         const pay = c.paymentId && PAY().get(c.paymentId);
         if (pay) {
-          ERP.purchasing.deletePayment(pay.id); // bills reopen, supplier balance back, payment entry removed …
+          ERP.purchasing.deletePayment(pay.id, { cheque: true }); // bills reopen, supplier balance back, payment entry removed …
           ERP.accounting.post({ date: c.paymentDate || c.createdAt, memo: `شيك صادر ${c.number} — ${c.partyName} (سند ${c.paymentNo})`, refType: 'cheque', refId: c.id, lines: [{ sys: 'ap', debit: c.amount, desc: c.partyName }, { sys: 'notes_payable', credit: c.amount, desc: `شيك ${c.number}` }] });
           ERP.accounting.post({ memo: `ارتداد شيك صادر ${c.number} — ${c.partyName}`, refType: 'cheque', refId: c.id, lines: [{ sys: 'notes_payable', debit: c.amount, desc: `شيك مرتد ${c.number}` }, { sys: 'ap', credit: c.amount, desc: c.partyName }] });
         }
@@ -131,11 +133,18 @@ window.ERP = window.ERP || {};
     cancel(id, { reason = '' } = {}) {
       const c = get(id);
       need(c, c.dir, OPEN[c.dir] || [], 'إلغاء الشيك');
-      if (c.dir === 'in') { if (c.receiptId && PAY().get(c.receiptId)) ERP.crm.deleteReceipt(c.receiptId); }
-      else if (c.paymentId && PAY().get(c.paymentId)) ERP.purchasing.deletePayment(c.paymentId);
+      if (c.dir === 'in') { if (c.receiptId && PAY().get(c.receiptId)) ERP.crm.deleteReceipt(c.receiptId, { cheque: true }); }
+      else if (c.paymentId && PAY().get(c.paymentId)) ERP.purchasing.deletePayment(c.paymentId, { cheque: true });
       const r = move(get(id), 'cancelled', reason || 'إلغاء', { cancelledAt: u.now() });
       ERP.audit.log('cheque.cancel', `${c.no}${reason ? ' · ' + reason : ''}`, id);
       return r;
+    },
+    /** the live cheque (any state but cancelled / bounced) behind a receipt / supplier payment → cheque | null.
+     *  crm.deleteReceipt / purchasing.deletePayment refuse to delete such a document directly (the cheque would go stale) */
+    linkedTo(pay) {
+      if (!pay) return null;
+      const c = (pay.chequeId && CH().get(pay.chequeId)) || CH().all().find(x => (pay.type === 'payment' ? x.paymentId : x.receiptId) === pay.id);
+      return c && !['cancelled', 'bounced'].includes(c.status) ? c : null;
     },
     /** allowed actions for a cheque in its current state */
     actions(c) {

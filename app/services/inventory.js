@@ -60,7 +60,17 @@ window.ERP = window.ERP || {};
     /** negative-stock policy: 'block' (nobody), 'permission' (users with pos.negative_stock), 'allow' (everyone) */
     negativeMode() { const s = ERP.settings.all(); if (s.posAllowNegativeStock) return 'allow'; return s.negativeStockMode === 'permission' ? 'permission' : 'block'; },
     canGoNegative() { const m = inv.negativeMode(); return m === 'allow' || (m === 'permission' && !!ERP.auth && ERP.auth.can('pos.negative_stock')); },
-    move({ productId, warehouseId, qty, type, unitCost = null, refType = null, refId = null, note = '', batch = null, date = null, silent = false, allowNegative = null }) {
+    /** expiry batches (quantity tracking only — GL/valuation never depend on them):
+     *  - outbound without an explicit batch consumes FEFO over NON-EXPIRED batches first (earliest expiry first), then the
+     *    expired ones (they normally leave through «شطب المنتهي» with an explicit batch). Same order as ERP.clearance.nearBatches,
+     *    so the clearance discount covers exactly the units that actually leave.
+     *  - `batch` / `batchAlloc` [{batchNo, expiry, qty}] (base units): outbound → take from those batches first (rest FEFO);
+     *    inbound → add into them (re-creating a batch that was emptied). The consumed/added split is returned as mv.batchAlloc
+     *    (sales keep it per line so returns / voids put the quantities back into the batches they came from).
+     *  Valuation keeper: every move posts its cent rounding residual — Δ round(stock × avg cost) − move value — to
+     *  inv_gain / inv_loss (merged into one entry per document), so GL inventory = valuation exactly (see roundPost). */
+    fefo(batches, wh, today = u.todayISO()) { return u.sortBy(batches.filter(b => (b.warehouseId || wh) === wh && u.num(b.qty) > 0), b => `${b.expiry < today ? 1 : 0}|${b.expiry}`); },
+    move({ productId, warehouseId, qty, type, unitCost = null, refType = null, refId = null, note = '', batch = null, batchAlloc = null, date = null, silent = false, allowNegative = null }) {
       const p = P().get(productId); if (!p) throw new Error('المنتج غير موجود');
       qty = u.round(u.num(qty), 3); if (!qty) return null;
       warehouseId = warehouseId || defaultWh();
@@ -80,28 +90,52 @@ window.ERP = window.ERP || {};
       }
       const costUsed = unitCost !== null ? unitCost : u.num(p.cost);
       const stockByWh = { ...(p.stockByWh || {}) }; stockByWh[warehouseId] = u.round(cur + qty, 3);
-      let batches = p.batches || [];
-      if (p.trackExpiry && batch && batch.expiry) {
-        batches = [...batches];
-        const i = batches.findIndex(b => b.batchNo === (batch.batchNo || '') && b.expiry === batch.expiry && (b.warehouseId || warehouseId) === warehouseId);
-        if (i >= 0) batches[i] = { ...batches[i], qty: u.round(batches[i].qty + qty, 3) }; else if (qty > 0) batches.push({ batchNo: batch.batchNo || '', expiry: batch.expiry, qty, warehouseId });
-        batches = batches.filter(b => b.qty > 0.0001);
-      } else if (p.trackExpiry && qty < 0 && batches.length) {
-        // FEFO consumption
-        let rem = -qty; batches = u.sortBy(batches, 'expiry').map(b => ({ ...b }));
-        for (const b of batches) { if (rem <= 0) break; if ((b.warehouseId || warehouseId) !== warehouseId) continue; const take = Math.min(b.qty, rem); b.qty = u.round(b.qty - take, 3); rem -= take; }
+      let batches = p.batches || []; let alloc = null;
+      if (p.trackExpiry) {
+        const same = (b, a) => (b.batchNo || '') === (a.batchNo || '') && b.expiry === a.expiry && (b.warehouseId || warehouseId) === warehouseId;
+        const pref = (batchAlloc || []).filter(a => a && a.expiry && u.num(a.qty) > 0).concat(batch && batch.expiry ? [{ ...batch, qty: Math.abs(qty) }] : []);
+        const note1 = (b, t) => { const x = alloc.find(y => same(y, b)); if (x) x.qty = u.round(x.qty + t, 3); else alloc.push({ batchNo: b.batchNo || '', expiry: b.expiry, warehouseId, qty: t }); };
+        if (qty > 0 && pref.length) {
+          batches = batches.map(b => ({ ...b })); alloc = []; let rem = qty;
+          for (const a of pref) { const t = u.round(Math.min(u.num(a.qty), rem), 3); if (t <= 0) continue; const b = batches.find(x => same(x, a)); if (b) b.qty = u.round(u.num(b.qty) + t, 3); else batches.push({ batchNo: a.batchNo || '', expiry: a.expiry, qty: t, warehouseId }); note1(a, t); rem = u.round(rem - t, 3); }
+        } else if (qty < 0 && batches.length) {
+          batches = batches.map(b => ({ ...b })); alloc = []; let rem = -qty;
+          const take = (b, max) => { const t = u.round(Math.min(u.num(b.qty), max, rem), 3); if (t <= 0) return; b.qty = u.round(u.num(b.qty) - t, 3); rem = u.round(rem - t, 3); note1(b, t); };
+          for (const a of pref) { const b = batches.find(x => same(x, a)); if (b) take(b, u.num(a.qty)); }
+          for (const b of inv.fefo(batches, warehouseId)) { if (rem <= 0.0001) break; take(b, rem); }
+        }
         batches = batches.filter(b => b.qty > 0.0001);
       }
-      P().update(productId, { stock: u.round(total + qty, 3), stockByWh, cost: newCost, batches, lastMoveAt: u.now() }, { silent });
-      const mv = M().insert({ date: date || u.now(), productId, productName: p.name, warehouseId, qty, type, unitCost: costUsed, value: u.round(qty * costUsed), refType, refId, note, batch: batch ? (batch.batchNo || '') : '', expiry: batch ? batch.expiry : null, balanceAfter: u.round(total + qty, 3), userId: ERP.auth.current()?.id || null }, { silent });
-      // inbound into negative stock: the missing units were costed at the old average — settle them at the new
-      // cost and post the difference (inv_gain / inv_loss) so GL inventory keeps equal to the valuation
-      if (costed && total < -0.0001) {
-        const adj = u.round(u.round((total + qty) * newCost) - u.round(total * u.num(p.cost)) - mv.value);
-        if (Math.abs(adj) >= 0.01) { ERP.accounting.postStockAdjust({ id: mv.id, date: mv.date, note: `تسوية تكلفة رصيد سالب — ${p.name}` }, adj); M().update(mv.id, { revalue: adj }, { silent: true }); mv.revalue = adj; }
-      }
+      const newStock = u.round(total + qty, 3);
+      const value = qty < 0 ? -u.round(-qty * costUsed) : u.round(qty * costUsed); // sign-symmetric (out + back in nets to zero)
+      // valuation keeper: the product's valuation line is round(stock × avg cost); whatever that moves by beyond the move value
+      // (cent rounding of the 4-decimal average, or units sold below zero re-costed by a later inbound) is posted here
+      const adj = u.round(u.round(newStock * newCost) - u.round(total * u.num(p.cost)) - value);
+      P().update(productId, { stock: newStock, stockByWh, cost: newCost, batches, lastMoveAt: u.now() }, { silent });
+      const mv = M().insert({ date: date || u.now(), productId, productName: p.name, warehouseId, qty, type, unitCost: costUsed, value, refType, refId, note, batch: batch ? (batch.batchNo || '') : '', expiry: batch ? batch.expiry : null, balanceAfter: newStock, userId: ERP.auth.current()?.id || null, ...(alloc && alloc.length ? { batchAlloc: alloc } : {}), ...(Math.abs(adj) >= 0.005 ? { revalue: adj } : {}) }, { silent });
+      if (Math.abs(adj) >= 0.005) inv.roundPost(mv, adj, costed && total < -0.0001 ? `تسوية تكلفة رصيد سالب — ${p.name}` : `فرق تقريب تقييم المخزون — ${p.name}`);
       return mv;
     },
+    /** post a valuation residual (Dr/Cr inventory vs inv_gain / inv_loss). Consecutive residuals of the same document
+     *  (all lines of one invoice / receipt / transfer) are merged into ONE journal entry instead of one per line. */
+    _rk: { key: null, id: null },
+    roundPost(mv, adj, memo) {
+      const J = ERP.db.collection('journal'); const key = `${mv.refType || 'mv'}:${mv.refId || mv.id}`;
+      const prev = inv._rk.key === key && inv._rk.id ? J.get(inv._rk.id) : null;
+      let v = adj;
+      if (prev) { const ia = ERP.accounting.bySys('inventory').id; v = u.round(u.sum(prev.lines.filter(l => l.accountId === ia), l => l.debit - l.credit) + adj); }
+      const lines = v > 0 ? [{ sys: 'inventory', debit: v, desc: 'فرق تقريب' }, { sys: 'inv_gain', credit: v }] : [{ sys: 'inv_loss', debit: -v }, { sys: 'inventory', credit: -v, desc: 'فرق تقريب' }];
+      if (prev) {
+        if (Math.abs(v) < 0.005) { J.remove(prev.id); inv._rk = { key: null, id: null }; return null; }
+        const norm = ERP.accounting.validate(lines); return J.update(prev.id, { lines: norm, total: u.round(Math.abs(v)) });
+      }
+      const en = ERP.accounting.post({ date: mv.date, memo, refType: 'stock_adjust', refId: mv.id, lines });
+      inv._rk = { key, id: en ? en.id : null };
+      return en;
+    },
+    /** GL settle for callers whose posting is computed apart from the moves (void: the removed sale entry): post
+     *  Σ move values − the GL inventory change they already made, merged with that document's rounding entry */
+    settle(moves, posted, memo) { const mvs = (moves || []).filter(Boolean); if (!mvs.length) return null; const d = u.round(u.sum(mvs, 'value') - u.num(posted)); return Math.abs(d) >= 0.005 ? inv.roundPost(mvs[mvs.length - 1], d, memo) : null; },
 
     adjust({ productId, warehouseId, newQty, reason = '', unitCost = null }) {
       const p = P().get(productId); const wh = warehouseId || defaultWh();
@@ -112,9 +146,9 @@ window.ERP = window.ERP || {};
       ERP.audit.log('stock.adjust', `${p.name}: ${diff > 0 ? '+' : ''}${u.fmtQty(diff)} (${reason})`, mv.id);
       return mv;
     },
-    waste({ productId, warehouseId, qty, reason = 'هالك' }) {
+    waste({ productId, warehouseId, qty, reason = 'هالك', batch = null }) {
       const p = P().get(productId);
-      const mv = inv.move({ productId, warehouseId, qty: -Math.abs(u.num(qty)), type: 'waste', refType: 'waste', note: reason, allowNegative: true });
+      const mv = inv.move({ productId, warehouseId, qty: -Math.abs(u.num(qty)), type: 'waste', refType: 'waste', note: reason, allowNegative: true, batch });
       ERP.accounting.postStockAdjust(mv, mv.value);
       ERP.audit.log('stock.waste', `${p.name}: ${u.fmtQty(qty)} — ${reason}`, mv.id);
       return mv;
@@ -177,7 +211,8 @@ window.ERP = window.ERP || {};
       return val;
     },
     valuation(warehouseId = null) {
-      const rows = P().all().filter(p => p.active !== false).map(p => { const q = warehouseId ? whQty(p, warehouseId) : u.num(p.stock); return { product: p, qty: q, cost: u.num(p.cost), value: u.round(q * u.num(p.cost)), retail: u.round(q * u.num(p.price)) }; });
+      // inactive products still count while they hold stock — their value is still in GL inventory
+      const rows = P().all().filter(p => p.active !== false || Math.abs(u.num(warehouseId ? whQty(p, warehouseId) : p.stock)) > 0.0001).map(p => { const q = warehouseId ? whQty(p, warehouseId) : u.num(p.stock); return { product: p, qty: q, cost: u.num(p.cost), value: u.round(q * u.num(p.cost)), retail: u.round(q * u.num(p.price)) }; });
       return { rows, totalValue: u.sum(rows, 'value'), totalRetail: u.sum(rows, 'retail'), totalQty: u.sum(rows, 'qty'), potentialProfit: u.sum(rows, 'retail') - u.sum(rows, 'value') };
     },
     /** reorder proposals: demand forecast (30-day velocity × lead + safety days) with product-level floors */

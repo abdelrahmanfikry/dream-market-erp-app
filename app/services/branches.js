@@ -15,9 +15,18 @@ window.ERP = window.ERP || {};
     current() { const s = ERP.settings.all(); return { code: s.branchCode || 'MAIN', name: s.branchName || s.storeName || 'الفرع الرئيسي' }; },
     /** known branches (registry maintained locally: this branch + any seen via transfers/consolidation) */
     all() { const me = br.current(); const list = B().all(); if (!list.some(b => b.code === me.code)) B().insert({ id: 'br_' + me.code, code: me.code, name: me.name, isSelf: true }, { silent: true }); return B().all().map(b => ({ ...b, isSelf: b.code === me.code })); },
+    normCode(code) { return String(code || '').trim().toUpperCase().replace(/\s+/g, '-'); },
+    /** license branch limit (ERP.license.branches): a NEW code may join the registry only while (known branches + this one) ≤ licensed max */
+    checkSlot(code) {
+      code = br.normCode(code); const me = br.current().code;
+      if (!code || code === me || B().first({ code })) return true;
+      const codes = new Set(B().all().map(b => b.code)); codes.add(me);
+      return ERP.license && ERP.license.requireBranchSlot ? ERP.license.requireBranchSlot(codes.size + 1) : true;
+    },
     register({ code, name, phone = '', address = '' }) {
-      code = String(code || '').trim().toUpperCase().replace(/\s+/g, '-'); if (!code) throw new Error('كود الفرع مطلوب');
+      code = br.normCode(code); if (!code) throw new Error('كود الفرع مطلوب');
       const ex = B().first({ code }); if (ex) return B().update(ex.id, { name: name || ex.name, phone, address });
+      br.checkSlot(code);
       return B().insert({ id: 'br_' + code, code, name: name || code, phone, address });
     },
     remove(id) { const b = B().get(id); if (!b) return; if (b.code === br.current().code) throw new Error('لا يمكن حذف الفرع الحالي'); B().remove(id); },
@@ -47,6 +56,7 @@ window.ERP = window.ERP || {};
       const me = br.current();
       if (payload.toBranch && payload.toBranch !== me.code) throw new Error(`هذا التحويل موجّه إلى فرع ${payload.toBranch} وليس ${me.code}`);
       if (T().all().some(t => t.kind === 'branch' && t.direction === 'in' && t.sourceId === payload.id)) throw new Error(`تم استلام هذا التحويل (${payload.no}) من قبل`);
+      if (payload.fromBranch) br.checkSlot(payload.fromBranch); // before any stock moves (the sender joins the registry below)
       const wh = toWh || ERP.inventory.defaultWh();
       const P = ERP.db.collection('products');
       let value = 0; const lines = [];
@@ -98,6 +108,7 @@ window.ERP = window.ERP || {};
       if (!snap.collections) throw new Error('هذا ليس ملف نسخة احتياطية من النظام');
       const st = (snap.collections.settings || []).find(s => s.id === 'main') || {};
       const code = st.branchCode || (st.storeName ? u.slug(st.storeName).toUpperCase() : 'BR-' + Date.now().toString(36).slice(-4));
+      br.checkSlot(code);
       const k = br.kpis(snap.collections, { branchCode: code, branchName: st.branchName || st.storeName || code }); k.source = 'file'; k.exportedAt = snap.__exportedAt;
       const store = (await ERP.db.kvGet('branchKpis')) || {}; store[code] = k; await ERP.db.kvSet('branchKpis', store);
       br.register({ code, name: k.name });
@@ -111,7 +122,7 @@ window.ERP = window.ERP || {};
       if (!ERP.cloud.isSignedIn()) throw new Error('سجّل الدخول بحساب المتجر السحابي أولاً (الإعدادات ← السحابة)');
       const list = await ERP.cloud.branchSummaries(); await ERP.cloud.refreshInbox();
       const me = br.current().code; const out = {}; const store = (await ERP.db.kvGet('branchKpis')) || {};
-      list.forEach(b => { if (!b || !b.code || !b.summary || b.code === me) return; const k = { ...b.summary, code: b.code, name: b.name || b.code, at: b.beat ? new Date(b.beat).toISOString() : b.summary.at, lastSync: b.lastSync || null, source: 'cloud' }; out[b.code] = k; store[b.code] = k; br.register({ code: b.code, name: k.name }); });
+      list.forEach(b => { if (!b || !b.code || !b.summary || b.code === me) return; const k = { ...b.summary, code: b.code, name: b.name || b.code, at: b.beat ? new Date(b.beat).toISOString() : b.summary.at, lastSync: b.lastSync || null, source: 'cloud' }; try { br.register({ code: b.code, name: k.name }); } catch (err) { console.warn('[branches]', err.message); return; } out[b.code] = k; store[b.code] = k; });
       await ERP.db.kvSet('branchKpis', store);
       return out;
     },

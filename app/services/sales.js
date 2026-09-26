@@ -29,8 +29,11 @@ window.ERP = window.ERP || {};
       const rate = s.taxEnabled ? u.num(it.taxRate ?? (p ? p.taxRate : 0) ?? s.taxRate) : 0;
       const taxAmount = rate ? (s.taxInclusive ? u.round(net - net / (1 + rate / 100)) : u.round(net * rate / 100)) : 0;
       const un = it.unitId && p ? ERP.units.get(p, it.unitId) : null;
-      // cost is per LINE unit (base avg cost × factor) so cost × qty = COGS; stock moves use baseQty
-      return { productId: it.productId, name: ERP.units.label(it.name, it.unitName), barcode: (un && un.barcode) || (p ? p.barcode : ''), qty: u.num(it.qty), unitId: it.unitId, unitName: it.unitName, factor: it.factor, baseQty: u.round(u.num(it.qty) * it.factor, 3), baseUnitId: p ? p.unitId : null, price: u.num(it.price), cost: p ? u.num(p.cost) * it.factor : u.num(it.cost), discount: disc, promoLabel: pl ? pl.labels.join(', ') : '', taxRate: rate, taxAmount, total: net };
+      // cost is per LINE unit (base avg cost × factor); line cogs = round(baseQty × base avg cost) — exactly the value of the
+      // line's stock move, so the GL COGS / inventory credit equals the moves (and the valuation) to the cent
+      const baseQty = u.round(u.num(it.qty) * it.factor, 3);
+      const lineCogs = p ? u.round(baseQty * u.num(p.cost)) : u.round(u.num(it.qty) * u.num(it.cost));
+      return { productId: it.productId, name: ERP.units.label(it.name, it.unitName), barcode: (un && un.barcode) || (p ? p.barcode : ''), qty: u.num(it.qty), unitId: it.unitId, unitName: it.unitName, factor: it.factor, baseQty, baseUnitId: p ? p.unitId : null, price: u.num(it.price), cost: p ? u.num(p.cost) * it.factor : u.num(it.cost), cogs: lineCogs, discount: disc, promoLabel: pl ? pl.labels.join(', ') : '', taxRate: rate, taxAmount, total: net };
     });
     const subtotal = u.round(u.sum(items, it => it.qty * it.price));
     const lineDiscounts = u.round(u.sum(items, 'discount'));
@@ -42,7 +45,7 @@ window.ERP = window.ERP || {};
     if (s.taxEnabled) { const ratio = afterLines ? taxable / afterLines : 1; tax = u.round(u.sum(items, 'taxAmount') * ratio); }
     const loyalty = u.clamp(u.num(loyaltyDiscount), 0, taxable + (s.taxInclusive ? 0 : tax));
     const total = u.round(taxable + (s.taxInclusive ? 0 : tax) - loyalty);
-    return { items, subtotal, lineDiscounts, discount: u.round(lineDiscounts + invoiceDiscount), invoiceDiscount, promoDiscount: u.round(promo.lineTotal + promo.cartDiscount), promoLabels: promo.labels, tax, loyaltyDiscount: loyalty, total, cogs: u.round(u.sum(items, it => it.cost * it.qty)), itemCount: items.length, qtyCount: u.sum(items, 'qty') };
+    return { items, subtotal, lineDiscounts, discount: u.round(lineDiscounts + invoiceDiscount), invoiceDiscount, promoDiscount: u.round(promo.lineTotal + promo.cartDiscount), promoLabels: promo.labels, tax, loyaltyDiscount: loyalty, total, cogs: u.round(u.sum(items, 'cogs')), itemCount: items.length, qtyCount: u.sum(items, 'qty') };
   }
 
   const sales = {
@@ -132,14 +135,17 @@ window.ERP = window.ERP || {};
         date: date || u.now(), type: 'sale',
         customerId: customer ? customer.id : null, customerName: customer ? customer.name : (customerName || s.posDefaultCustomer),
         items: c.items, subtotal: c.subtotal, discount: c.discount, invoiceDiscount: c.invoiceDiscount, discountType, discountInput: u.num(discount), promoDiscount: c.promoDiscount, promoLabels: c.promoLabels,
-        tax: c.tax, taxRate: s.taxEnabled ? s.taxRate : 0, loyaltyDiscount: c.loyaltyDiscount, loyaltyPointsUsed: pts, total: c.total, paid, due, change,
+        tax: c.tax, taxRate: s.taxEnabled ? s.taxRate : 0, taxInclusive: !!(s.taxEnabled && s.taxInclusive), loyaltyDiscount: c.loyaltyDiscount, loyaltyPointsUsed: pts, total: c.total, paid, due, change,
         status: due <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid', payments: finalPays, cogs: c.cogs, profit: u.round(c.total - c.tax - c.cogs), deliveryFee: c.deliveryFee || 0, orderId,
         userId: user ? user.id : null, userName: user ? user.name : '', shiftId: shift ? shift.id : null, warehouseId: wh, notes, quotationId, returnedQty: {}, approvedBy: approvedBy ? { id: approvedBy.id, name: approvedBy.name } : (cart.find(i => i.approvedBy) || {}).approvedBy || null,
       };
       ERP.accounting.validate(ERP.accounting.saleLines({ ...doc, no: '' })); // the GL entry must balance before anything is written
       /* ---- 2) write ---- */
       const sale = SALES().insert({ no: ERP.db.nextSeq('sale', s.numbering.sale), ...doc });
-      c.items.forEach(it => ERP.inventory.move({ productId: it.productId, warehouseId: wh, qty: -it.baseQty, type: 'sale', refType: 'sale', refId: sale.id, note: sale.no, silent: true, allowNegative: allowNeg }));
+      const mvs = c.items.map(it => ERP.inventory.move({ productId: it.productId, warehouseId: wh, qty: -it.baseQty, type: 'sale', refType: 'sale', refId: sale.id, note: sale.no, silent: true, allowNegative: allowNeg }));
+      // expiry batches consumed per line (base units) → returns / voids put them back into the same batches
+      if (mvs.some(m => m && m.batchAlloc)) SALES().update(sale.id, { items: sale.items.map((it, i) => (mvs[i] && mvs[i].batchAlloc ? { ...it, batchAlloc: mvs[i].batchAlloc } : it)) }, { silent: true });
+      ERP.inventory.settle(mvs, -c.cogs, `فرق تقريب تكلفة ${sale.no}`); // safety net: GL COGS = Σ move values (normally 0)
       ERP.bus.emit('db:change', { collection: 'products', op: 'bulk' });
       giftPays.forEach(p => ERP.giftcards.redeem(p.cardCode, p.amount, sale.no));
       if (customer) {
@@ -168,6 +174,7 @@ window.ERP = window.ERP || {};
       if (orig.status === 'void') throw new Error('الفاتورة ملغاة');
       if (!ERP.auth.can('pos.return') && !approvedBy) throw new Error('ليس لديك صلاحية المرتجعات');
       const returned = { ...(orig.returnedQty || {}) };
+      const backDone = JSON.parse(JSON.stringify(orig.batchBack || {})); // per line key: qty already restored into each batchAlloc entry
       const items = [];
       (lines || []).forEach(l => {
         if (u.num(l.qty) < 0) throw new Error('كمية مرتجع سالبة غير مسموحة');
@@ -179,7 +186,19 @@ window.ERP = window.ERP || {};
         const qty = u.round(Math.min(u.num(l.qty), it.qty - already), 3);
         if (qty <= 0) return;
         const ratio = qty / it.qty; const f = ERP.units.lineUnit(it) ? u.num(it.factor, 1) : 1;
-        items.push({ ...it, qty, baseQty: u.round(qty * f, 3), discount: u.round(it.discount * ratio), taxAmount: u.round(it.taxAmount * ratio), total: u.round(it.total * ratio) });
+        const baseQty = u.round(qty * f, 3), unitCost = u.num(it.cost) / f;
+        // batches: restore PROPORTIONALLY over what is still out of each consumed batch (a partial return spreads over the
+        // line's batches in the same ratio; the last return of the line restores exactly the remainder). Old sales without
+        // batchAlloc → no batch restore (previous behaviour: the quantity comes back untracked)
+        let back = null;
+        if ((it.batchAlloc || []).length) {
+          const done = (backDone[key] = backDone[key] || it.batchAlloc.map(() => 0));
+          const lineBase = u.round(it.qty * f, 3), remLine = u.round(lineBase - u.round(already * f, 3), 3);
+          const frac = remLine > 0 ? Math.min(1, baseQty / remLine) : 0;
+          back = it.batchAlloc.map((a, i) => { const rem = u.round(u.num(a.qty) - done[i], 3); const q = frac >= 0.9999 ? rem : u.round(rem * frac, 3); done[i] = u.round(done[i] + q, 3); return { ...a, qty: q }; }).filter(a => a.qty > 0);
+        }
+        const { batchAlloc: _ba, ...rest } = it;
+        items.push({ ...rest, qty, baseQty, discount: u.round(it.discount * ratio), taxAmount: u.round(it.taxAmount * ratio), total: u.round(it.total * ratio), cogs: u.round(baseQty * unitCost), ...(back && back.length ? { batchAlloc: back } : {}) });
         returned[key] = u.round(already + qty, 3);
       });
       if (!items.length) throw new Error('لا توجد كميات صالحة للإرجاع');
@@ -193,7 +212,7 @@ window.ERP = window.ERP || {};
       const discount = u.round(u.sum(items, 'discount') + u.num(orig.invoiceDiscount) * share + u.num(orig.loyaltyDiscount) * share);
       const tax = u.num(orig.tax) > 0 ? u.round(u.sum(items, 'taxAmount') * discRatio) : 0;
       const total = u.round(subtotal - discount + (taxIncl ? 0 : tax));
-      const cogs = u.round(u.sum(items, it => it.cost * it.qty));
+      const cogs = u.round(u.sum(items, 'cogs'));
       // refund: if invoice had due, first reduce due (credit), rest refund by method
       let refundCredit = 0, refundCash = 0;
       if (orig.due > 0) { refundCredit = u.round(Math.min(total, orig.due)); }
@@ -206,11 +225,12 @@ window.ERP = window.ERP || {};
       const doc = { date: u.now(), type: 'return', refSaleId: orig.id, refNo: orig.no, customerId: orig.customerId, customerName: orig.customerName, items, subtotal, discount, tax, total, paid: total, due: 0, status: 'paid', payments: pays, cogs, reason, userId: user?.id, userName: user?.name, shiftId: shift?.id || null, warehouseId: orig.warehouseId, approvedBy: approvedBy ? { id: approvedBy.id, name: approvedBy.name } : null };
       ERP.accounting.validate(ERP.accounting.saleReturnLines({ ...doc, no: '' })); // fail before writing
       const ret = SALES().insert({ no: ERP.db.nextSeq('return', ERP.settings.prefix('return')), ...doc });
-      items.forEach(it => ERP.inventory.move({ productId: it.productId, warehouseId: orig.warehouseId, qty: it.baseQty, type: 'return_in', unitCost: u.num(it.cost) / (ERP.units.lineUnit(it) ? u.num(it.factor, 1) : 1), refType: 'sale_return', refId: ret.id, note: ret.no, silent: true }));
+      const mvs = items.map(it => ERP.inventory.move({ productId: it.productId, warehouseId: orig.warehouseId, qty: it.baseQty, type: 'return_in', unitCost: u.num(it.cost) / (ERP.units.lineUnit(it) ? u.num(it.factor, 1) : 1), refType: 'sale_return', refId: ret.id, note: ret.no, batchAlloc: it.batchAlloc || null, silent: true }));
+      ERP.inventory.settle(mvs, cogs, `فرق تقريب تكلفة ${ret.no}`);
       ERP.bus.emit('db:change', { collection: 'products', op: 'bulk' });
       const allReturned = orig.items.every(it => u.num(returned[ERP.units.lineKey(it)]) >= it.qty - 0.0001);
       const newDue = u.round(orig.due - refundCredit);
-      SALES().update(orig.id, { returnedQty: returned, due: newDue, status: allReturned ? 'returned' : (newDue <= 0 ? (orig.paid > 0 ? 'paid' : orig.status) : orig.status), hasReturns: true }, { silent: true });
+      SALES().update(orig.id, { returnedQty: returned, ...(Object.keys(backDone).length ? { batchBack: backDone } : {}), due: newDue, status: allReturned ? 'returned' : (newDue <= 0 ? (orig.paid > 0 ? 'paid' : orig.status) : orig.status), hasReturns: true }, { silent: true });
       if (orig.customerId) {
         if (refundCredit) ERP.crm.adjustBalance(orig.customerId, -refundCredit, { silent: true });
         if (refundMethod === 'credit' && refundCash) ERP.crm.adjustBalance(orig.customerId, -refundCash, { silent: true });
@@ -232,7 +252,8 @@ window.ERP = window.ERP || {};
       if (s.hasReturns) throw new Error('لا يمكن إلغاء فاتورة عليها مرتجعات');
       if ((s.payments || []).some(p => p.receiptId)) throw new Error('لا يمكن إلغاء فاتورة عليها تحصيلات — احذف سند التحصيل أولاً');
       if (s.type === 'sale') {
-        s.items.forEach(it => { const f = ERP.units.lineUnit(it) ? u.num(it.factor, 1) : 1; ERP.inventory.move({ productId: it.productId, warehouseId: s.warehouseId, qty: u.round(it.qty * f, 3), type: 'return_in', unitCost: u.num(it.cost) / f, refType: 'void', refId: s.id, note: `إلغاء ${s.no}`, silent: true }); });
+        const mvs = s.items.map(it => { const f = ERP.units.lineUnit(it) ? u.num(it.factor, 1) : 1; return ERP.inventory.move({ productId: it.productId, warehouseId: s.warehouseId, qty: u.round(it.qty * f, 3), type: 'return_in', unitCost: u.num(it.cost) / f, refType: 'void', refId: s.id, note: `إلغاء ${s.no}`, batchAlloc: it.batchAlloc || null, silent: true }); });
+        ERP.inventory.settle(mvs, u.num(s.cogs) > 0 ? u.num(s.cogs) : 0, `فرق تقريب تكلفة إلغاء ${s.no}`); // unposting the sale gives back exactly s.cogs
         const c = s.customerId ? ERP.crm.get(s.customerId) : null;
         if (c) {
           if (s.due > 0) ERP.crm.adjustBalance(c.id, -s.due, { silent: true });
