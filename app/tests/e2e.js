@@ -579,10 +579,15 @@ window.ERP = window.ERP || {};
       suite(add);
       // feature test files: ERP.testSuites.push((t, h) => { t('name', () => ...) }) — h = { u, near }
       (ERP.testSuites || []).forEach(s => s(add, { u, near }));
+      // invariant probe after every test: GL inventory − stock valuation (should stay 0) → r.invGap, so a leaking test is easy to spot
+      const gap = () => { try { return u.round(ERP.accounting.balance('inventory') - ERP.inventory.valuation().totalValue); } catch { return null; } };
       for (const { name, fn } of queue) {
-        try { const detail = await fn(); results.push({ name, ok: true, detail: detail || '' }); }
-        catch (e) { console.error('[test]', name, e); results.push({ name, ok: false, detail: e.message }); }
+        try { const detail = await fn(); results.push({ name, ok: true, detail: detail || '', invGap: gap() }); }
+        catch (e) { console.error('[test]', name, e); results.push({ name, ok: false, detail: e.message, invGap: gap() }); }
       }
+      // suite-wide guard: after every test ran, GL inventory must still equal the valuation (cent-level rounding tolerated)
+      { const g = gap(), start = results.length ? results[0].invGap : 0, bad = results.filter((r, i) => i && Math.abs((r.invGap || 0) - (results[i - 1].invGap || 0)) > 0.05).map(r => r.name);
+        results.push({ name: 'سلامة المخزون عبر كل الاختبارات: حساب المخزون = التقييم', ok: g !== null && Math.abs(g - (start || 0)) <= 0.05 && !bad.length, detail: bad.length ? `فرق ظهر بعد: ${bad.join(' · ')}` : `الفرق ${g}` }); }
       // restore user data exactly as it was
       try { await ERP.db.import(snapshot, { mode: 'replace' }); ERP.settings.load(); ERP.bus.emit('db:change', { collection: 'products', op: 'bulk' }); }
       catch (e) { console.error('restore after tests failed', e); results.push({ name: 'استعادة البيانات بعد الاختبار', ok: false, detail: e.message }); }

@@ -1,6 +1,7 @@
 /* ==========================================================================
    ERP.promotions — discount rules applied to a cart
    types: percent | fixed | buy_x_get_y | bundle_price | min_total_percent
+   + automatic 'clearance' (near-expiry, computed by ERP.clearance — not stored, not in TYPES)
    ========================================================================== */
 window.ERP = window.ERP || {};
 (function () {
@@ -64,6 +65,8 @@ window.ERP = window.ERP || {};
           if (d > 0 && (!best[pid] || d > best[pid].discount)) best[pid] = { discount: d, labels: [pr.name] };
         });
       });
+      // [clearance] dynamic type 'clearance' (ERP.clearance, near-expiry batches): competes per product like any item promo — larger discount wins, never stacks
+      if (ERP.clearance && ERP.clearance.enabled()) Object.entries(groups).forEach(([pid, ls]) => { const c = ERP.clearance.forCart(products[pid], ls); if (!c) return; const d = Math.min(c.discount, u.round(u.sum(ls, 'gross'))); if (d > 0 && (!best[pid] || d > best[pid].discount)) best[pid] = { discount: d, labels: [c.label], type: 'clearance' }; });
       Object.entries(best).forEach(([pid, b]) => {
         out.lines[pid] = b;
         const ls = groups[pid]; const gross = u.sum(ls, 'gross'); let left = b.discount;
@@ -76,6 +79,7 @@ window.ERP = window.ERP || {};
     tagFor(productId) {
       const p = ERP.db.collection('products').get(productId); if (!p) return null;
       const pr = ERP.promotions.active().find(x => x.type !== 'min_total_percent' && applies(x, { productId }, p));
+      const ct = ERP.clearance && ERP.clearance.tagFor(p); if (ct) return ct; // [clearance]
       if (!pr) return null;
       return pr.type === 'percent' ? `-${pr.value}%` : pr.type === 'fixed' ? `-${pr.value}` : pr.type === 'buy_x_get_y' ? `${pr.buyQty}+${pr.getQty}` : 'عرض';
     },

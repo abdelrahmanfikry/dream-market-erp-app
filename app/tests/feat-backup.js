@@ -76,7 +76,7 @@ window.ERP = window.ERP || {};
       ctx.shift = ERP.shifts.current() || ERP.shifts.open({ openingCash: 0 });
       const wh = ERP.inventory.defaultWh();
       ctx.p = ERP.db.collection('products').insert({ code: 'TST-DR1', name: 'صنف تقرير يومي', categoryId: 'cat_other', unitId: 'un_pc', cost: 6, price: 10, stock: 0, stockByWh: {}, batches: [], minStock: 0, taxRate: 0, active: true });
-      ERP.inventory.move({ productId: ctx.p.id, warehouseId: wh, qty: 100, type: 'opening', unitCost: 6, refType: 'opening', note: 'test' });
+      ERP.inventory.move({ productId: ctx.p.id, warehouseId: wh, qty: 100, type: 'opening', unitCost: 6, refType: 'opening', note: 'test' }); ERP.accounting.postOpeningStock(600); // keep GL inventory = valuation
       ctx.cust = ERP.crm.create({ name: 'عميل تقرير يومي', phone: '01000000001', creditLimit: 1000 });
       const at = hh => `${DAY}T${hh}:00:00`, line = q => [{ productId: ctx.p.id, name: 'صنف تقرير يومي', qty: q, price: 10 }];
       ERP.sales.create({ cart: line(3), payments: [{ method: 'cash', amount: 50 }], date: at('09') });          // 30 cash, change 20

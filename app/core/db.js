@@ -201,7 +201,7 @@ window.ERP = window.ERP || {};
     const run = mode === 'idb' && idb ? idbWrite(job) : new Promise(res => { lsWrite(job); res(); });
     flushing = run.then(() => {
       flushing = null; failures = 0;
-      if (remote && remote.onChange) job.names.forEach(n => { try { remote.onChange(n, cache[n]); } catch (e) { console.warn('remote', e); } });
+      if (remote && remote.onChange) job.names.forEach(n => { try { remote.onChange(n, cache[n], { dirty: [...(job.dirty[n] || [])], removed: [...(job.removed[n] || [])], replaced: job.replaced.has(n) }); } catch (e) { console.warn('remote', e); } }); // per-record ids (incl. silent writes) for incremental cloud sync
       ERP.bus.emit('db:flushed', job.names);
       if (hasPending()) schedulePersist();
       return true;

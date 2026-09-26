@@ -299,7 +299,8 @@ window.ERP = window.ERP || {};
   function labelsHtml(items) {
     const s = ERP.settings.all();
     // item: { product, qty = copies, unitName?, price? (unit price), oldPrice? (crossed out), barcode? (unit barcode) }
-    return `<div class="labels">${items.flatMap(({ product, qty = 1, unitName = '', price = null, oldPrice = null, barcode = null }) => u.range(qty).map(() => `<div class="label"><div class="name">${e(product.name)}</div>${barcodeSvg(barcode || product.barcode || product.code, { height: 36, width: 1.4 })}<div class="price num">${oldPrice ? `<s style="font-size:10px;font-weight:600;opacity:.7;margin-inline-end:4px">${u.fmtNum(oldPrice)}</s>` : ''}${u.fmtNum(price ?? product.price)} ${e(s.currency)}${unitName ? `<span style="font-size:10px;font-weight:600"> / ${e(unitName)}</span>` : ''}</div></div>`)).join('')}</div>`;
+    // [hw] clearance: true → red «تصفية» label (clearanceText = e.g. expiry date)
+    return `<div class="labels">${items.flatMap(({ product, qty = 1, unitName = '', price = null, oldPrice = null, barcode = null, clearance = false, clearanceText = '' }) => u.range(qty).map(() => `<div class="label"${clearance ? ' style="border:2px solid #dc2626;color:#b91c1c"' : ''}>${clearance ? `<div style="background:#dc2626;color:#fff;font-weight:800;font-size:12px;margin:-3mm -3mm 2mm;padding:1mm;-webkit-print-color-adjust:exact;print-color-adjust:exact">تصفية${clearanceText ? ` — ${e(clearanceText)}` : ''}</div>` : ''}<div class="name">${e(product.name)}</div>${barcodeSvg(barcode || product.barcode || product.code, { height: 36, width: 1.4 })}<div class="price num">${oldPrice ? `<s style="font-size:10px;font-weight:600;opacity:.7;margin-inline-end:4px">${u.fmtNum(oldPrice)}</s>` : ''}${u.fmtNum(price ?? product.price)} ${e(s.currency)}${unitName ? `<span style="font-size:10px;font-weight:600"> / ${e(unitName)}</span>` : ''}</div></div>`)).join('')}</div>`;
   }
 
   /* ---- async builders: QR is prepared before the document is rendered ---- */
@@ -337,7 +338,7 @@ window.ERP = window.ERP || {};
     purchase: (po, opts = {}) => opts.previewOnly ? preview(purchaseHtml(po), po.no) : printHtml(purchaseHtml(po), { title: po.no }),
     statement: (data, opts = {}) => opts.previewOnly ? preview(statementHtml(data), data.title) : printHtml(statementHtml(data), { title: data.title }),
     table: (data, opts = {}) => opts.previewOnly ? preview(tableHtml(data), data.title) : printHtml(tableHtml(data), { title: data.title }),
-    labels: (items, opts = {}) => opts.previewOnly ? preview(labelsHtml(items), 'ملصقات') : printHtml(labelsHtml(items), { title: 'ملصقات باركود' }),
+    labels: (items, opts = {}) => opts.previewOnly ? preview(labelsHtml(items), 'ملصقات') : (!opts.html && ERP.hardware && ERP.hardware.labels.enabled()) ? ERP.hardware.labels.print(items) /* [hw] raw ZPL / TSPL printer */ : printHtml(labelsHtml(items), { title: 'ملصقات باركود' }),
     receiptHtml, invoiceA4Html, quotationHtml, purchaseHtml, statementHtml, tableHtml,
   };
 })();

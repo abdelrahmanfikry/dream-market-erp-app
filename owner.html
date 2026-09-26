@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#16a34a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="لوحة المالك">
+  <title>لوحة المالك — Dream Market</title>
+  <style>
+    :root { --bg: #f4f6f8; --card: #fff; --ink: #0f172a; --mut: #64748b; --line: #e2e8f0; --pri: #16a34a; --pri2: #dcfce7; --warn: #b45309; --warn2: #fef3c7; --bad: #dc2626; --bad2: #fee2e2; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0b1220; --card: #111a2e; --ink: #e2e8f0; --mut: #94a3b8; --line: #1e293b; --pri2: #14361f; --warn2: #3b2a0a; --bad2: #3b1111; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Cairo, Tahoma, system-ui, sans-serif; background: var(--bg); color: var(--ink); font-size: 15px; padding-bottom: env(safe-area-inset-bottom); }
+    header { position: sticky; top: 0; z-index: 5; background: var(--pri); color: #fff; padding: 12px 16px; display: flex; align-items: center; gap: 10px; }
+    header h1 { font-size: 1.05rem; margin: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    header button { background: rgba(255,255,255,.18); color: #fff; border: 0; border-radius: 10px; padding: 7px 11px; font: inherit; font-size: .85rem; }
+    main { max-width: 760px; margin: 0 auto; padding: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+    .kpi .l { color: var(--mut); font-size: .78rem; } .kpi .v { font-weight: 800; font-size: 1.15rem; margin-top: 2px; }
+    .num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+    .br { cursor: pointer; } .br:active { transform: scale(.99); }
+    .row { display: flex; align-items: center; gap: 8px; } .grow { flex: 1; min-width: 0; }
+    .t { font-weight: 800; } .mut { color: var(--mut); font-size: .8rem; }
+    .badge { display: inline-block; border-radius: 99px; padding: 2px 9px; font-size: .72rem; font-weight: 700; background: var(--pri2); color: var(--pri); }
+    .badge.warn { background: var(--warn2); color: var(--warn); } .badge.bad { background: var(--bad2); color: var(--bad); }
+    .mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; text-align: center; }
+    .mini div { background: var(--bg); border-radius: 10px; padding: 6px 2px; } .mini b { display: block; font-size: .98rem; }
+    .list > div { display: flex; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); } .list > div:last-child { border-bottom: 0; }
+    .void { text-decoration: line-through; opacity: .55; }
+    input, textarea { width: 100%; font: inherit; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); margin: 6px 0 10px; }
+    textarea { font-family: monospace; font-size: .8rem; direction: ltr; }
+    .btn { display: block; width: 100%; border: 0; border-radius: 11px; padding: 12px; font: inherit; font-weight: 800; background: var(--pri); color: #fff; margin-top: 4px; }
+    .btn.ghost { background: transparent; color: var(--mut); font-weight: 600; }
+    .alert { border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; font-size: .88rem; background: var(--warn2); color: var(--warn); }
+    .alert.bad { background: var(--bad2); color: var(--bad); }
+    .tabs { display: flex; gap: 6px; margin: 4px 0 12px; } .tabs button { flex: 1; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 10px; padding: 8px; font: inherit; font-size: .85rem; } .tabs button.on { background: var(--pri); border-color: var(--pri); color: #fff; }
+    .hidden { display: none !important; }
+    .center { text-align: center; color: var(--mut); padding: 30px 0; }
+    h2 { font-size: 1rem; margin: 4px 0 10px; }
+  </style>
+</head>
+<body>
+  <header><button id="back" class="hidden" aria-label="رجوع">→</button><h1 id="title">لوحة المالك</h1><button id="out" class="hidden">خروج</button></header>
+  <main id="app"><div class="center">جارٍ التحميل…</div></main>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script>
+  /* Owner dashboard — standalone (no main-app scripts). Reads companies/{uid}/branches/* (summary docs written by
+     each branch) live via onSnapshot, and a branch's sales for one day (cols/sales/docs where dataDate == day). */
+  (function () {
+    'use strict';
+    var CFG_KEY = 'dm_owner_cfg', STALE_MS = 30 * 60000;
+    var $app = document.getElementById('app'), $title = document.getElementById('title'), $back = document.getElementById('back'), $out = document.getElementById('out');
+    var st = { cfg: null, auth: null, db: null, user: null, company: null, branches: [], unsubB: null, unsubS: null, view: 'list', sel: null, day: today(), sales: [], salesErr: '', tab: 'sales' };
+    function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+    var NF = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }); function n(v) { return NF.format(Number(v) || 0); }
+    function money(v, cur) { return '<span class="num">' + n(v) + '</span>' + (cur ? ' <small>' + esc(cur) + '</small>' : ''); }
+    function ago(ms) { if (!ms) return 'لم يتصل بعد'; var s = Math.max(0, (Date.now() - ms) / 1000); if (s < 60) return 'الآن'; if (s < 3600) return 'منذ ' + Math.round(s / 60) + ' د'; if (s < 86400) return 'منذ ' + Math.round(s / 3600) + ' س'; return 'منذ ' + Math.round(s / 86400) + ' يوم'; }
+    function time(v) { var d = new Date(v); return isNaN(d) ? '' : d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }); }
+    function parseCfg(text) { var s = String(text || '').trim(), a = s.indexOf('{'), b = s.lastIndexOf('}'); if (a < 0 || b < a) throw new Error('الصق إعدادات Firebase'); s = s.slice(a, b + 1); var o; try { o = JSON.parse(s); } catch (e) { o = JSON.parse(s.replace(/(^|[^:])\/\/[^\n]*/g, '$1').replace(/'/g, '"').replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":').replace(/,\s*}/g, '}')); } if (!o.apiKey || !o.projectId) throw new Error('apiKey و projectId مطلوبان'); return { apiKey: o.apiKey, authDomain: o.authDomain || o.projectId + '.firebaseapp.com', projectId: o.projectId, appId: o.appId || undefined }; }
+    function errText(e) { var c = (e && e.code) || ''; return ({ 'auth/invalid-credential': 'البريد أو كلمة المرور غير صحيحة', 'auth/invalid-login-credentials': 'البريد أو كلمة المرور غير صحيحة', 'auth/wrong-password': 'كلمة المرور غير صحيحة', 'auth/user-not-found': 'الحساب غير موجود', 'auth/invalid-email': 'البريد غير صحيح', 'auth/network-request-failed': 'لا يوجد اتصال بالإنترنت', 'auth/too-many-requests': 'محاولات كثيرة — انتظر قليلاً', 'permission-denied': 'رفض الصلاحية — تأكد من قواعد الأمان', 'failed-precondition': 'يحتاج فهرس في Firestore — افتح الرابط في رسالة الخطأ من Console' })[c] || (e && e.message) || String(e); }
+    function stale(b) { return !b.beat || Date.now() - b.beat > STALE_MS; }
+    function sum(list, f) { return list.reduce(function (a, x) { return a + (Number(f(x)) || 0); }, 0); }
+
+    function header() {
+      $back.classList.toggle('hidden', st.view !== 'branch'); $out.classList.toggle('hidden', !st.user);
+      $title.textContent = st.view === 'branch' && st.sel ? (st.sel.name || st.sel.code) : (st.company && st.company.store) || 'لوحة المالك';
+    }
+    function viewSetup(msg) {
+      st.view = 'setup'; header();
+      $app.innerHTML = '<div class="card"><h2>إعداد أول مرة</h2><div class="mut">الصق إعدادات الويب لمشروع Firebase (نفس الموجودة في النظام: الإعدادات ← السحابة). تُحفظ على هذا الموبايل فقط.</div>' + (msg ? '<div class="alert bad" style="margin-top:10px">' + esc(msg) + '</div>' : '') + '<textarea id="cfg" rows="7" placeholder=\'{ "apiKey": "...", "authDomain": "...", "projectId": "..." }\'></textarea><button class="btn" id="save">حفظ</button></div>';
+      document.getElementById('save').onclick = function () { try { var c = parseCfg(document.getElementById('cfg').value); localStorage.setItem(CFG_KEY, JSON.stringify(c)); location.reload(); } catch (e) { viewSetup(e.message); } };
+    }
+    function viewLogin(msg) {
+      st.view = 'login'; header();
+      $app.innerHTML = '<div class="card"><h2>تسجيل الدخول</h2><div class="mut">ادخل بحساب الشركة السحابي (نفس الحساب المستخدم في الفروع).</div>' + (msg ? '<div class="alert bad" style="margin-top:10px">' + esc(msg) + '</div>' : '') + '<input id="em" type="email" dir="ltr" autocomplete="username" placeholder="email@example.com"><input id="pw" type="password" dir="ltr" autocomplete="current-password" placeholder="كلمة المرور"><button class="btn" id="in">دخول</button><button class="btn ghost" id="cfgr">تغيير إعدادات Firebase</button></div>';
+      document.getElementById('in').onclick = function () { var b = this; b.disabled = true; st.auth.signInWithEmailAndPassword(document.getElementById('em').value.trim(), document.getElementById('pw').value).catch(function (e) { b.disabled = false; viewLogin(errText(e)); }); };
+      document.getElementById('cfgr').onclick = function () { localStorage.removeItem(CFG_KEY); location.reload(); };
+    }
+    function kpis(list) {
+      var cur = (list.find(function (b) { return b.currency; }) || {}).currency || '';
+      var S = function (f) { return sum(list, function (b) { return b.summary ? f(b.summary) : 0; }); };
+      return '<div class="grid">' + [['مبيعات اليوم', money(S(function (s) { return s.todaySales; }), cur)], ['فواتير اليوم', '<span class="num">' + n(S(function (s) { return s.todayCount; })) + '</span>'], ['الخزينة', money(S(function (s) { return s.cash; }), cur)], ['قيمة المخزون', money(S(function (s) { return s.stockValue; }), cur)], ['مبيعات الشهر', money(S(function (s) { return s.month && s.month.total; }), cur)], ['أصناف ناقصة', '<span class="num">' + n(S(function (s) { return s.lowStock; })) + '</span>']].map(function (k) { return '<div class="kpi"><div class="l">' + k[0] + '</div><div class="v">' + k[1] + '</div></div>'; }).join('') + '</div>';
+    }
+    function viewList() {
+      st.view = 'list'; st.sel = null; header(); if (st.unsubS) { st.unsubS(); st.unsubS = null; }
+      var list = st.branches.slice().sort(function (a, b) { return String(a.code).localeCompare(String(b.code)); });
+      if (!list.length) { $app.innerHTML = '<div class="card center">لا توجد فروع بعد — فعّل المزامنة من النظام في كل فرع (الإعدادات ← السحابة) بنفس هذا الحساب.</div>'; return; }
+      var bad = list.filter(stale);
+      $app.innerHTML = (bad.length ? '<div class="alert">⚠️ ' + bad.length + ' فرع لم يتصل منذ أكثر من 30 دقيقة — الأرقام قد تكون قديمة.</div>' : '') + '<h2>كل الفروع (' + list.length + ')</h2>' + kpis(list) + '<div style="height:12px"></div>' + list.map(function (b, i) {
+        var s = b.summary || {}, cur = b.currency || '';
+        return '<div class="card br" data-i="' + i + '"><div class="row"><div class="grow"><div class="t">' + esc(b.name || b.code) + ' <span class="mut num">' + esc(b.code) + '</span></div><div class="mut">آخر اتصال: ' + ago(b.beat) + (b.pending ? ' · ' + n(b.pending) + ' تغيير بانتظار الرفع' : '') + '</div></div>' + (stale(b) ? '<span class="badge bad">غير متصل</span>' : s.openShift ? '<span class="badge">وردية مفتوحة</span>' : '<span class="badge warn">بدون وردية</span>') + '</div><div class="mini"><div><span class="mut">اليوم</span><b>' + money(s.todaySales, '') + '</b></div><div><span class="mut">فواتير</span><b class="num">' + n(s.todayCount) + '</b></div><div><span class="mut">نواقص</span><b class="num">' + n(s.lowStock) + '</b></div></div>' + (s.openShift ? '<div class="mut" style="margin-top:8px">وردية ' + esc(s.openShift.no) + ' — ' + esc(s.openShift.user) + ' منذ ' + time(s.openShift.openedAt) + (s.openShift.expected != null ? ' · النقدية المتوقعة ' + money(s.openShift.expected, cur) : '') + '</div>' : '') + '</div>';
+      }).join('');
+      Array.prototype.forEach.call($app.querySelectorAll('[data-i]'), function (el) { el.onclick = function () { openBranch(list[+el.dataset.i]); }; });
+    }
+    function openBranch(b) { st.sel = b; st.view = 'branch'; st.day = today(); st.tab = 'sales'; listenSales(); viewBranch(); }
+    function listenSales() {
+      if (st.unsubS) st.unsubS(); st.sales = []; st.salesErr = ''; st.salesLoading = true;
+      var path = 'companies/' + st.user.uid + '/branches/' + st.sel.id + '/cols/sales/docs';
+      st.unsubS = st.db.collection(path).where('dataDate', '==', st.day).limit(3000).onSnapshot(function (snap) {
+        st.salesLoading = false;
+        st.sales = snap.docs.map(function (d) { var x = d.data(); if (x.deleted || typeof x.json !== 'string') return null; try { return JSON.parse(x.json); } catch (e) { return null; } }).filter(Boolean).sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+        if (st.view === 'branch') viewBranch();
+      }, function (e) { st.salesLoading = false; st.salesErr = errText(e); if (st.view === 'branch') viewBranch(); });
+    }
+    function viewBranch() {
+      var b = st.branches.find(function (x) { return x.id === st.sel.id; }) || st.sel; st.sel = b; header();
+      var s = b.summary || {}, cur = b.currency || '', live = st.sales.filter(function (x) { return x.status !== 'void'; });
+      var sales = live.filter(function (x) { return x.type === 'sale'; }), rets = live.filter(function (x) { return x.type === 'return'; });
+      var net = sum(sales, function (x) { return x.total; }) - sum(rets, function (x) { return x.total; });
+      var top = {}; sales.forEach(function (x) { (x.items || []).forEach(function (it) { var t = top[it.name] || (top[it.name] = { name: it.name, qty: 0, total: 0 }); t.qty += Number(it.qty) || 0; t.total += Number(it.total) || 0; }); });
+      top = Object.keys(top).map(function (k) { return top[k]; }).sort(function (a, c) { return c.total - a.total; }).slice(0, 15);
+      var body = '';
+      if (st.tab === 'sales') body = st.salesErr ? '<div class="alert bad">' + esc(st.salesErr) + '</div>' : st.salesLoading ? '<div class="center">جارٍ التحميل…</div>' : !st.sales.length ? '<div class="center">لا توجد فواتير في هذا اليوم</div>' : '<div class="list">' + st.sales.map(function (x) { return '<div class="' + (x.status === 'void' ? 'void' : '') + '"><div class="grow"><div class="t num" style="text-align:right">' + esc(x.no) + (x.type === 'return' ? ' <span class="badge bad">مرتجع</span>' : '') + (x.status === 'void' ? ' <span class="badge warn">ملغاة</span>' : '') + '</div><div class="mut">' + time(x.date) + ' · ' + esc(x.customerName || '') + (x.userName ? ' · ' + esc(x.userName) : '') + ' · ' + ((x.items || []).length) + ' صنف</div></div><div class="t">' + money((x.type === 'return' ? -1 : 1) * (Number(x.total) || 0), '') + '</div></div>'; }).join('') + '</div>';
+      else if (st.tab === 'top') body = !top.length ? '<div class="center">لا مبيعات</div>' : '<div class="list">' + top.map(function (t, i) { return '<div><span class="badge">' + (i + 1) + '</span><div class="grow">' + esc(t.name) + '<div class="mut">كمية <span class="num">' + n(t.qty) + '</span></div></div><div class="t">' + money(t.total, '') + '</div></div>'; }).join('') + '</div>';
+      else body = !(s.lowList || []).length ? '<div class="center">لا أصناف ناقصة 👍</div>' : '<div class="list">' + s.lowList.map(function (p) { return '<div><div class="grow">' + esc(p.name) + '<div class="mut num" style="text-align:right">' + esc(p.code) + '</div></div><div><span class="badge ' + (Number(p.stock) <= 0 ? 'bad' : 'warn') + '">الرصيد <span class="num">' + n(p.stock) + '</span> / حد <span class="num">' + n(p.min) + '</span></span></div></div>'; }).join('') + (s.lowStock > s.lowList.length ? '<div class="mut">… و' + n(s.lowStock - s.lowList.length) + ' صنف آخر</div>' : '') + '</div>';
+      $app.innerHTML = (stale(b) ? '<div class="alert">⚠️ هذا الفرع لم يتصل ' + ago(b.beat) + ' — الملخص قد يكون قديماً.</div>' : '') + '<div class="card"><div class="row"><div class="grow mut">آخر اتصال ' + ago(b.beat) + (b.appVersion ? ' · إصدار ' + esc(b.appVersion) : '') + '</div><input id="day" type="date" value="' + esc(st.day) + '" style="width:auto;margin:0"></div></div><div class="grid">' + [['صافي مبيعات اليوم المختار', money(net, cur)], ['عدد الفواتير', '<span class="num">' + n(sales.length) + '</span>'], ['المرتجعات', money(sum(rets, function (x) { return x.total; }), cur)], ['الخزينة الآن', money(s.cash, cur)], ['قيمة المخزون', money(s.stockValue, cur)], ['مبيعات الشهر', money(s.month && s.month.total, cur)]].map(function (k) { return '<div class="kpi"><div class="l">' + k[0] + '</div><div class="v">' + k[1] + '</div></div>'; }).join('') + '</div>' + (s.openShift ? '<div class="card" style="margin-top:12px">🟢 وردية ' + esc(s.openShift.no) + ' — ' + esc(s.openShift.user) + ' منذ ' + time(s.openShift.openedAt) + (s.openShift.expected != null ? '<div class="mut">النقدية المتوقعة في الدرج: ' + money(s.openShift.expected, cur) + '</div>' : '') + '</div>' : '') + '<div class="tabs" style="margin-top:12px"><button data-t="sales" class="' + (st.tab === 'sales' ? 'on' : '') + '">الفواتير (' + st.sales.length + ')</button><button data-t="top" class="' + (st.tab === 'top' ? 'on' : '') + '">الأكثر مبيعاً</button><button data-t="low" class="' + (st.tab === 'low' ? 'on' : '') + '">النواقص (' + n(s.lowStock) + ')</button></div><div class="card">' + body + '</div>';
+      document.getElementById('day').onchange = function () { st.day = this.value || today(); listenSales(); viewBranch(); };
+      Array.prototype.forEach.call($app.querySelectorAll('[data-t]'), function (el) { el.onclick = function () { st.tab = el.dataset.t; viewBranch(); }; });
+    }
+    function render() { if (st.view === 'branch') viewBranch(); else if (st.view === 'list') viewList(); }
+
+    $back.onclick = function () { viewList(); };
+    $out.onclick = function () { if (confirm('تسجيل الخروج؟')) st.auth.signOut(); };
+    setInterval(function () { if (st.view === 'list' || st.view === 'branch') render(); }, 60000); // refresh "آخر اتصال" labels
+
+    try { st.cfg = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch (e) { st.cfg = null; }
+    if (!window.firebase || !firebase.auth) { $app.innerHTML = '<div class="card center">تعذر تحميل مكتبة Firebase — تحقق من الإنترنت ثم أعد التحميل.</div>'; return; }
+    if (!st.cfg) return viewSetup();
+    try { firebase.initializeApp(st.cfg); } catch (e) { return viewSetup(e.message); }
+    st.auth = firebase.auth(); st.db = firebase.firestore();
+    st.auth.onAuthStateChanged(function (user) {
+      st.user = user; if (st.unsubB) { st.unsubB(); st.unsubB = null; } if (st.unsubS) { st.unsubS(); st.unsubS = null; }
+      if (!user) { st.branches = []; st.company = null; return viewLogin(); }
+      st.view = 'list'; $app.innerHTML = '<div class="center">جارٍ تحميل الفروع…</div>'; header();
+      st.db.doc('companies/' + user.uid).get().then(function (d) { st.company = d.exists ? d.data() : null; header(); }).catch(function () { });
+      st.unsubB = st.db.collection('companies/' + user.uid + '/branches').onSnapshot(function (snap) {
+        st.branches = snap.docs.map(function (d) { var x = d.data(); x.id = d.id; return x; }); render();
+      }, function (e) { $app.innerHTML = '<div class="alert bad">' + esc(errText(e)) + '</div>'; });
+    });
+  })();
+  </script>
+</body>
+</html>

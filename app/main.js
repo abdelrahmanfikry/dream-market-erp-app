@@ -68,6 +68,8 @@ window.ERP = window.ERP || {};
       ERP.router.start();
       ERP.notifications.scan();
       ERP.backup.checkAuto();
+      /* [dist] license banner / read-only notice, desktop update check, first-run setup wizard */
+      try { if (ERP.license) ERP.license.afterLogin(); if (ERP.updater) ERP.updater.init(); if (ERP.setupWizard) ERP.setupWizard.maybeShow(); } catch (err) { console.warn('[dist]', err); }
       if (r.mustChangePin) setTimeout(() => app.forcePinChange(), 600);
       const st = ERP.db.getMeta('legacyStats'); if (st && !ERP.db.getMeta('legacyNotified')) { ERP.db.setMeta('legacyNotified', true); ERP.ui.toast(`تم استيراد بيانات النظام القديم: ${st.products} منتج، ${st.sales} فاتورة، ${st.customers} عميل. راجع أسعار التكلفة للمنتجات.`, 'success', { title: 'تم الترحيل', duration: 10000 }); }
     },
@@ -144,6 +146,7 @@ window.ERP = window.ERP || {};
         if (ERP.giftcards) ERP.giftcards.ensureMethod();
         ERP.settings.load();
         await ERP.auth.init(); // stored session accepted only if its token matches the one in the db kv store
+        if (ERP.license) await ERP.license.init(); // [dist] machine code, trial start, stored license → sync ERP.license.requireActive()
         // legacy migration
         if (ERP.migrate.hasLegacy()) { try { ERP.migrate.run(); } catch (err) { console.error('migration failed', err); } }
         // demo data on very first run (nothing at all)

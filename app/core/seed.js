@@ -19,6 +19,7 @@ window.ERP = window.ERP || {};
     { code: '1160', name: 'سلف الموظفين', type: 'asset', parent: '1100', sys: 'advances' },
     { code: '1170', name: 'مصروفات مدفوعة مقدماً', type: 'asset', parent: '1100' },
     { code: '1180', name: 'جاري الفروع', type: 'asset', parent: '1100', sys: 'branch_current' },
+    { code: '1190', name: 'شيكات تحت التحصيل', type: 'asset', parent: '1100', sys: 'cheques_in' }, // [cheques] added to existing installs by ensureAccounts() at boot
     { code: '1200', name: 'الأصول الثابتة', type: 'asset', parent: '1000' },
     { code: '1210', name: 'أجهزة ومعدات', type: 'asset', parent: '1200', sys: 'fixed_assets' },
     { code: '1220', name: 'أثاث وتجهيزات', type: 'asset', parent: '1200' },
@@ -32,6 +33,7 @@ window.ERP = window.ERP || {};
     { code: '2140', name: 'مصروفات مستحقة', type: 'liability', parent: '2100' },
     { code: '2150', name: 'نقاط ولاء مستحقة', type: 'liability', parent: '2100', sys: 'loyalty' },
     { code: '2160', name: 'إيرادات مقدمة / بطاقات هدايا', type: 'liability', parent: '2100', sys: 'gift' },
+    { code: '2170', name: 'أوراق دفع (شيكات صادرة)', type: 'liability', parent: '2100', sys: 'notes_payable' }, // [cheques]
     { code: '2200', name: 'قروض طويلة الأجل', type: 'liability', parent: '2000' },
     // Equity 3xxx
     { code: '3000', name: 'حقوق الملكية', type: 'equity', parent: null },

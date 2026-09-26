@@ -8,7 +8,7 @@ window.ERP = window.ERP || {};
   ERP.testSuites = ERP.testSuites || [];
   ERP.testSuites.push((t, h) => {
     const { u, near } = h; const P = ERP.db.collection('products'); const ctx = {};
-    const mkProduct = (code, barcode, stock = 50, price = 25) => { const p = P.insert({ code, name: 'صنف ' + code, categoryId: 'cat_other', unitId: 'un_pc', cost: 10, price, stock: 0, stockByWh: {}, batches: [], minStock: 0, taxRate: 0, active: true, barcode }); ERP.inventory.move({ productId: p.id, warehouseId: ERP.inventory.defaultWh(), qty: stock, type: 'opening', unitCost: 10, refType: 'opening', note: 'test' }); return P.get(p.id); };
+    const mkProduct = (code, barcode, stock = 50, price = 25) => { const p = P.insert({ code, name: 'صنف ' + code, categoryId: 'cat_other', unitId: 'un_pc', cost: 10, price, stock: 0, stockByWh: {}, batches: [], minStock: 0, taxRate: 0, active: true, barcode }); ERP.inventory.move({ productId: p.id, warehouseId: ERP.inventory.defaultWh(), qty: stock, type: 'opening', unitCost: 10, refType: 'opening', note: 'test' }); ERP.accounting.postOpeningStock(stock * 10); return P.get(p.id); }; // opening value to GL so inventory = valuation
     const openShift = (cash = 100) => { const cur = ERP.shifts.current(); if (cur) ERP.shifts.close(cur.id, { closingCash: ERP.shifts.expected(cur) }); return ERP.shifts.open({ openingCash: cash }); };
 
     /* ---------------- A) cash denomination count ---------------- */

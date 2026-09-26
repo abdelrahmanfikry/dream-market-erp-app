@@ -146,6 +146,19 @@ window.ERP = window.ERP || {};
       ERP.audit.log('purchase.pay', `${sup.name}: ${u.fmtMoney(amount)}`, pay.id);
       return pay;
     },
+    /** [cheques] undo a supplier payment: restores the bills it settled, the supplier balance, the GL entry and (cash) the open shift */
+    deletePayment(payId) {
+      const p = PAY().get(payId); if (!p || p.type !== 'payment') return;
+      PO().all().filter(o => (o.payments || []).some(x => x.paymentId === payId)).forEach(o => { const a = u.round(u.sum(o.payments.filter(x => x.paymentId === payId), 'amount')); PO().update(o.id, { paid: u.round(Math.max(0, u.num(o.paid) - a)), due: u.round(u.num(o.due) + a), payments: o.payments.filter(x => x.paymentId !== payId) }, { silent: true }); });
+      ERP.bus.emit('db:change', { collection: 'purchases', op: 'bulk' });
+      pur.adjustSupplierBalance(p.partyId, p.amount);
+      ERP.accounting.unpost('payment', payId);
+      if (p.method === 'cash') { const sh = ERP.shifts.current(); if (sh && u.toISODate(p.date) >= u.toISODate(sh.openedAt)) ERP.db.collection('shifts').update(sh.id, { cashOut: u.round(Math.max(0, u.num(sh.cashOut) - p.amount)) }, { silent: true }); }
+      PAY().remove(payId);
+      ERP.audit.log('purchase.pay', `حذف سداد ${p.no}`, payId);
+    },
+    /** [cheques] bill due date = explicit po.dueDate, else receipt (or order) date + payment terms (PO terms, else the supplier's) */
+    dueDate(po) { if (!po) return null; if (po.dueDate) return po.dueDate; const sup = S().get(po.supplierId); const terms = u.num(po.paymentTerms ?? (sup && sup.paymentTerms)); return u.toISODate(u.addDays(po.receivedAt || po.date, terms)); },
     /** return goods to supplier: items [{productId, qty, cost}] — from the PO's warehouse, input VAT reversed */
     returnToSupplier({ supplierId, items, notes = '', poId = null, warehouseId = null }) {
       const sup = S().get(supplierId); if (!sup) throw new Error('المورد غير موجود');

@@ -34,6 +34,7 @@ window.ERP = window.ERP || {}; ERP.views = ERP.views || {};
     h.$('[data-a=c]').onclick = () => h.close(); const rv = h.$('[data-a=rev]'); if (rv) rv.onclick = async () => { if (await ERP.ui.confirm('إنشاء قيد عكسي لهذا القيد؟')) { ERP.accounting.reverse(id); h.close(); ERP.ui.success('تم'); refresh(); } };
   }
   async function manualEntry() {
+    try { if (ERP.license) ERP.license.requireActive(); } catch (err) { return ERP.ui.error(err.message); } // read-only mode (expired trial/license) blocks manual entries too
     if (!ERP.auth.require('accounting.manage')) return;
     const accs = ERP.accounting.accounts().filter(a => !ERP.accounting.accounts().some(x => x.parentId === a.id));
     let lines = [{ accountId: '', debit: 0, credit: 0, desc: '' }, { accountId: '', debit: 0, credit: 0, desc: '' }];

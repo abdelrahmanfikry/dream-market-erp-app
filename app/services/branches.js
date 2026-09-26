@@ -1,6 +1,7 @@
 /* ==========================================================================
    ERP.branches — multi-branch: identity, inter-branch transfers (file or
-   cloud), consolidated KPIs across branches (from backups or Firestore)
+   cloud inbox companies/{cid}/transfers), consolidated KPIs across branches
+   (from backup files or the branch summary docs written by ERP.cloud)
    ========================================================================== */
 window.ERP = window.ERP || {};
 (function () {
@@ -35,6 +36,7 @@ window.ERP = window.ERP || {};
       ERP.bus.emit('db:change', { collection: 'products', op: 'bulk' });
       if (value) ERP.accounting.post({ date: doc.date, memo: `تحويل بضاعة إلى فرع ${toBranch} — ${doc.no}`, refType: 'branch_transfer', refId: doc.id, lines: [{ sys: 'branch_current', debit: u.round(value), desc: `جاري فرع ${toBranch}` }, { sys: 'inventory', credit: u.round(value), desc: 'خروج مخزون' }] });
       ERP.audit.log('stock.transfer', `${doc.no} → فرع ${toBranch}: ${detail.length} صنف بقيمة ${u.fmtMoney(value)}`, doc.id);
+      if (ERP.cloud && ERP.cloud.postTransfersSoon) ERP.cloud.postTransfersSoon(); // cloud inbox of the receiving branch (no-op when sync is off / during tests)
       return T().get(doc.id);
     },
     payload(transferId) { const t = T().get(transferId); if (!t) throw new Error('التحويل غير موجود'); return { __type: 'DreamMarketBranchTransfer', __version: 1, id: t.id, no: t.no, date: t.date, fromBranch: t.fromBranch, fromBranchName: t.fromBranchName, toBranch: t.toBranch, note: t.note, lines: t.lines, value: t.value }; },
@@ -59,12 +61,13 @@ window.ERP = window.ERP || {};
       ERP.bus.emit('db:change', { collection: 'products', op: 'bulk' });
       if (value) ERP.accounting.post({ date: doc.date, memo: `استلام بضاعة من فرع ${payload.fromBranch} — ${payload.no}`, refType: 'branch_transfer', refId: doc.id, lines: [{ sys: 'inventory', debit: u.round(value), desc: 'دخول مخزون' }, { sys: 'branch_current', credit: u.round(value), desc: `جاري فرع ${payload.fromBranch}` }] });
       ERP.audit.log('stock.transfer', `استلام ${payload.no} من فرع ${payload.fromBranch}: ${lines.length} صنف بقيمة ${u.fmtMoney(value)}`, doc.id);
+      if (ERP.cloud && ERP.cloud.ackTransfer) ERP.cloud.ackTransfer(payload.id).catch(err => console.warn('[branches] cloud ack', err && err.message));
       return doc;
     },
     async receiveFile(file, opts) { const txt = await u.readFile(file); let p; try { p = JSON.parse(txt); } catch { throw new Error('ملف غير صالح'); } return br.receiveTransfer(p, opts); },
     transfers() { return u.sortBy(T().all().filter(t => t.kind === 'branch'), 'date', 'desc'); },
-    /** inbound transfers addressed to me found in cloud branch data (not yet received) */
-    pendingCloudInbound() { const me = br.current().code; const got = new Set(T().all().filter(t => t.direction === 'in').map(t => t.sourceId)); const out = []; Object.values(cloudCache).forEach(b => (b.transfers || []).forEach(t => { if (t.kind === 'branch' && t.direction === 'out' && t.toBranch === me && !got.has(t.id)) out.push({ ...t, __type: 'DreamMarketBranchTransfer', __version: 1 }); })); return out; },
+    /** inbound transfers addressed to me in the cloud inbox (companies/{cid}/transfers, status 'sent') not yet received here (dedup by sourceId) */
+    pendingCloudInbound() { const me = br.current().code; const got = new Set(T().all().filter(t => t.direction === 'in').map(t => t.sourceId)); return (ERP.cloud && ERP.cloud.inbox ? ERP.cloud.inbox() : []).filter(p => p && p.toBranch === me && !got.has(p.id)); },
 
     /* ---------------- consolidation ---------------- */
     /** compute branch KPIs from a plain snapshot {collections:{sales,...}} or from separate arrays */
@@ -102,25 +105,16 @@ window.ERP = window.ERP || {};
     },
     async savedKpis() { return (await ERP.db.kvGet('branchKpis')) || {}; },
     async forgetBranchKpis(code) { const store = (await ERP.db.kvGet('branchKpis')) || {}; delete store[code]; await ERP.db.kvSet('branchKpis', store); },
-    /** pull every branch's data from Firestore (same project, stores/{id}/data/{collection}) */
+    /** consolidation from the cloud: one read per branch (summary doc written by each branch's ERP.cloud) + transfer inbox — no raw data download */
     async pullCloud() {
-      if (!ERP.settings.get('firebaseConfig')) throw new Error('المزامنة السحابية غير مُعدّة — أعدّها من صفحة النسخ الاحتياطي');
-      await ERP.cloud.connect();
-      const fs = await ERP.cloud.firestore();
-      const stores = await fs.collection('stores').get();
-      const out = {}; const store = (await ERP.db.kvGet('branchKpis')) || {};
-      for (const doc of stores.docs) {
-        const cols = await ERP.cloud.readStore(doc.id);
-        const st = (cols.settings || []).find(s => s.id === 'main') || {};
-        const code = st.branchCode || doc.id;
-        cloudCache[code] = { transfers: cols.transfers || [] };
-        const k = br.kpis(cols, { branchCode: code, branchName: st.branchName || st.storeName || code }); k.source = 'cloud'; k.storeId = doc.id;
-        out[code] = k; store[code] = k; br.register({ code, name: k.name });
-      }
+      if (!ERP.cloud || !ERP.cloud.isConfigured()) throw new Error('المزامنة السحابية غير مُعدّة — أعدّها من الإعدادات ← السحابة');
+      if (!ERP.cloud.isSignedIn()) throw new Error('سجّل الدخول بحساب المتجر السحابي أولاً (الإعدادات ← السحابة)');
+      const list = await ERP.cloud.branchSummaries(); await ERP.cloud.refreshInbox();
+      const me = br.current().code; const out = {}; const store = (await ERP.db.kvGet('branchKpis')) || {};
+      list.forEach(b => { if (!b || !b.code || !b.summary || b.code === me) return; const k = { ...b.summary, code: b.code, name: b.name || b.code, at: b.beat ? new Date(b.beat).toISOString() : b.summary.at, lastSync: b.lastSync || null, source: 'cloud' }; out[b.code] = k; store[b.code] = k; br.register({ code: b.code, name: k.name }); });
       await ERP.db.kvSet('branchKpis', store);
       return out;
     },
   };
-  const cloudCache = {};
   ERP.branches = br;
 })();
